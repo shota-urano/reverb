@@ -1,0 +1,51 @@
+# ===== macOS =====
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.Spotlight-V100
+.Trashes
+
+# ===== Xcode / Swift =====
+build/
+DerivedData/
+*.xcuserstate
+*.xcscmblueprint
+xcuserdata/
+*.moved-aside
+.swiftpm/
+Packages/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+.python-version
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# ===== Reverb 処理生成物（ローカル一時データ） =====
+# 抽出音声・字幕・合成音声・ミックス等の中間/出力物は版管理しない
+output/
+tmp/
+cache/
+*.wav
+*.mp3
+*.mp4
+*.mkv
+*.srt
+*.vtt
+
+# ===== ツール / IDE 個人設定 =====
+.claude/settings.local.json
+.idea/
+.vscode/
+*.log
