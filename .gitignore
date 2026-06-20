@@ -9,6 +9,7 @@ Icon
 
 # ===== Xcode / Swift =====
 build/
+.build/
 DerivedData/
 *.xcuserstate
 *.xcscmblueprint
