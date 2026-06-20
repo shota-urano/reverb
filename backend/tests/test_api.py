@@ -50,6 +50,12 @@ def test_models_and_speakers_fall_back_to_empty_lists_when_engines_are_down() ->
 
 def test_job_create_runs_stub_pipeline_to_done(tmp_path: Path) -> None:
     app = create_app(projects_dir=tmp_path)
+    app.state.ffmpeg.probe = lambda _: (True, 12.5)
+    app.state.ffmpeg.extract = lambda _, out_path, _options, progress_cb: (
+        progress_cb(0.5),
+        Path(out_path).write_bytes(b"wav"),
+        progress_cb(1.0),
+    )
     client = TestClient(app)
 
     response = client.post("/jobs", json={"videoPath": "/tmp/input.mp4"})
@@ -78,6 +84,7 @@ def test_job_create_runs_stub_pipeline_to_done(tmp_path: Path) -> None:
     assert result.status_code == 200
     assert result.json()["voiceoverPath"].endswith("voiceover.wav")
     assert result.json()["subtitlesPath"].endswith("subtitles.json")
+    assert result.json()["duration"] == 12.5
 
 
 def test_missing_job_uses_unified_error_body() -> None:

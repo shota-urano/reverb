@@ -30,7 +30,7 @@ def create_app(projects_dir: Optional[Path] = None) -> FastAPI:
 
     app = FastAPI(title="Reverb Backend", version=config.version)
     app.state.config = config
-    app.state.ffmpeg = FFmpegAdapter()
+    app.state.ffmpeg = FFmpegAdapter(config.ffmpeg_bin, config.ffprobe_bin)
     app.state.whisper = WhisperMLXAdapter()
     app.state.ollama = OllamaAdapter(
         config.ollama_base_url,
@@ -41,7 +41,7 @@ def create_app(projects_dir: Optional[Path] = None) -> FastAPI:
         config.dependency_timeout_seconds,
     )
     app.state.job_store = JobStore(config.projects_dir)
-    app.state.job_service = JobService(config, app.state.job_store)
+    app.state.job_service = JobService(config, app.state.job_store, app.state.ffmpeg)
     app.include_router(meta_router)
     app.include_router(jobs_router)
     install_error_handlers(app)

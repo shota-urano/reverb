@@ -7,20 +7,23 @@ from typing import Dict, List, Optional
 from core.config import BackendConfig
 from core.errors import BackendError
 from core.job_store import JobRecord, JobStore
-from pipeline.stub_stages import build_stub_stages
+from pipeline.extract import AudioExtractor, ExtractStage
+from pipeline.stage import Stage
+from pipeline.stub_stages import StubStage
 from schemas.enums import JobState, StageState
+from schemas.enums import StageName
 from schemas.jobs import CreateJobResponse, JobResult, JobStatus
 from schemas.settings import JobSettings, default_job_settings
 from services.pipeline_runner import PipelineRunner
 
 
 class JobService:
-    def __init__(self, config: BackendConfig, store: JobStore) -> None:
+    def __init__(self, config: BackendConfig, store: JobStore, ffmpeg: AudioExtractor) -> None:
         self.config = config
         self.store = store
         self._lock = RLock()
         self._subscribers: Dict[str, List[Queue]] = {}
-        self.runner = PipelineRunner(config, store, build_stub_stages(), self._notify)
+        self.runner = PipelineRunner(config, store, build_pipeline_stages(ffmpeg), self._notify)
 
     def create_job(self, video_path: str, settings: Optional[JobSettings]) -> CreateJobResponse:
         record = self.store.create(video_path, settings or default_job_settings(self.config))
@@ -85,3 +88,14 @@ class JobService:
             queues = list(self._subscribers.get(record.job_id, []))
         for queue in queues:
             queue.put(snapshot)
+
+
+def build_pipeline_stages(ffmpeg: AudioExtractor) -> List[Stage]:
+    return [
+        ExtractStage(ffmpeg),
+        StubStage(StageName.transcribe, "transcript.json"),
+        StubStage(StageName.translate, "translation.json"),
+        StubStage(StageName.subtitle, "subtitles.json"),
+        StubStage(StageName.tts, "tts/cue_0000.wav"),
+        StubStage(StageName.mix, "voiceover.wav"),
+    ]
