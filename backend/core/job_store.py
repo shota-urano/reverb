@@ -162,6 +162,7 @@ class JobStore:
             # アトミック書き込み: 一時ファイルへ書いてから置換し、
             # 中断による project.json の破損（=再開時にジョブ消失）を防ぐ。
             manifest_path = record.project_dir / "project.json"
+            # Project dirs are single-job-owned and stages run sequentially, so fixed .tmp is safe.
             tmp_path = record.project_dir / "project.json.tmp"
             tmp_path.write_text(
                 json.dumps(manifest, ensure_ascii=False, indent=2),
@@ -240,7 +241,7 @@ def invalidate_downstream_stages(
             stage = record.stages[stage_name]
             _remove_stage_artifacts(record.project_dir, stage_name, stage.artifact)
             stage.artifact = None
-            if stage.status not in (StageState.pending, StageState.failed):
+            if stage.status != StageState.pending:
                 stage.status = StageState.pending
                 stage.progress = 0.0
         if record.current_stage in invalidated:

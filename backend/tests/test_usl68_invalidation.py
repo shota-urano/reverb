@@ -32,6 +32,7 @@ def test_translate_settings_change_invalidates_translate_and_downstream(tmp_path
     record.stages[StageName.transcribe].artifact = "transcript.json"
     (record.project_dir / "transcript.json").write_text("{}", encoding="utf-8")
     record.stages[StageName.translate].artifact = "translation.json"
+    record.stages[StageName.translate].status = StageState.failed
     (record.project_dir / "translation.json").write_text("{}", encoding="utf-8")
     record.stages[StageName.subtitle].artifact = "subtitles.json"
     (record.project_dir / "subtitles.json").write_text("{}", encoding="utf-8")
@@ -57,6 +58,7 @@ def test_translate_settings_change_invalidates_translate_and_downstream(tmp_path
     assert persisted.stages[StageName.extract].status == StageState.done
     assert persisted.stages[StageName.transcribe].status == StageState.done
     assert persisted.stages[StageName.translate].status == StageState.pending
+    assert persisted.stages[StageName.translate].progress == 0.0
     assert persisted.stages[StageName.subtitle].status == StageState.pending
     assert persisted.stages[StageName.tts].status == StageState.pending
     assert persisted.stages[StageName.mix].status == StageState.pending

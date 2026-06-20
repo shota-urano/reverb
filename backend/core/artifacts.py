@@ -55,6 +55,7 @@ def read_subtitles(project_dir: Path) -> Subtitles:
 def _write_model(path: Path, model) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(model_to_dict(model, by_alias=True), ensure_ascii=False, indent=2)
+    # Project dirs are single-job-owned and stages run sequentially, so fixed .tmp is safe.
     tmp_path = path.with_name(f"{path.name}.tmp")
     tmp_path.write_text(payload, encoding="utf-8")
     os.replace(tmp_path, path)
