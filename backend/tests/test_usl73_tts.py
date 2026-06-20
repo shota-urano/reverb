@@ -181,3 +181,36 @@ def _run_pipeline(
 
 def _wav_bytes() -> bytes:
     return b"RIFF$\x00\x00\x00WAVEfmt "
+
+
+def test_tts_non_stage_error_propagates_and_fails_job(tmp_path: Path) -> None:
+    """非 StageError (RuntimeError) は握りつぶさず伝播し、ジョブが failed になること。"""
+
+    class FakeVoicevoxWithRuntimeError:
+        def __init__(self) -> None:
+            self.calls: list = []
+
+        def synthesize(
+            self,
+            text: str,
+            speaker_id: int,
+            style_id: int,
+            speed_scale: float = 1.0,
+        ) -> bytes:
+            self.calls.append(text)
+            raise RuntimeError("unexpected internal error")
+
+    voicevox = FakeVoicevoxWithRuntimeError()
+    record, _ = _run_pipeline(
+        tmp_path,
+        voicevox,  # type: ignore[arg-type]
+        cues=[
+            SubtitleCue(id=0, start=0.0, end=1.0, lines=["テスト文。"], segmentIds=[0]),
+        ],
+        cue_retry_count=1,
+    )
+
+    failed_cue_path = get_cue_wav_path(record.project_dir, 0)
+    assert record.status == JobState.failed
+    assert record.stages[StageName.tts].status == StageState.failed
+    assert not failed_cue_path.exists(), "非StageErrorのとき無音プレースホルダを書いてはならない"

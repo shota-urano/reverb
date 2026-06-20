@@ -88,8 +88,6 @@ class TtsStage(Stage):
                 if exc.code in _FATAL_STAGE_ERROR_CODES:
                     raise
                 last_error = exc
-            except Exception as exc:
-                last_error = exc
 
         logger.warning(
             "TTS cue synthesis failed after retries; writing silent placeholder.",
