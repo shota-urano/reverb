@@ -230,7 +230,7 @@ def _run_pipeline(
 ) -> tuple[JobRecord, list]:
     config = config or BackendConfig().with_projects_dir(tmp_path)
     store = JobStore(config.projects_dir)
-    record = store.create("/tmp/input.mp4", default_job_settings(config))
+    record = store.create(str(tmp_path / "input.mp4"), default_job_settings(config))
     record.duration = duration
     (record.project_dir / AUDIO_PATH).write_bytes(_wav_bytes(duration))
     write_subtitles(record.project_dir, Subtitles(cues=cues))

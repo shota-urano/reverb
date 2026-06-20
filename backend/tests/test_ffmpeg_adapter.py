@@ -96,3 +96,19 @@ def test_voiceover_filter_graph_disables_amix_normalization() -> None:
     assert "normalize=0" in filter_graph
     assert "volume=0.08" in filter_graph
     assert "volume=1.0" in filter_graph
+
+
+def test_mix_voiceover_command_sets_wav_muxer_before_output_path() -> None:
+    out_path = Path("voiceover.wav.tmp")
+
+    command = FFmpegAdapter()._mix_voiceover_command(
+        Path("original.wav"),
+        [(Path("ja.wav"), 1.0)],
+        out_path,
+        10.0,
+        1.0,
+        0.08,
+    )
+
+    output_index = command.index(str(out_path))
+    assert command[output_index - 2 : output_index] == ["-f", "wav"]

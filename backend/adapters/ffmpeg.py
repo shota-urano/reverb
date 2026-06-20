@@ -216,6 +216,8 @@ class FFmpegAdapter:
                 "-c:a",
                 "pcm_s16le",
                 "-y",
+                "-f",
+                "wav",
                 str(out_path),
             ]
         )
