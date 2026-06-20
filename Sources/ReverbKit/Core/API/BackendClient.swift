@@ -172,6 +172,8 @@ public final class HTTPBackendClient: BackendClient {
         let response: URLResponse
         do {
             (data, response) = try await session.data(for: request)
+        } catch is CancellationError {
+            throw CancellationError() // キャンセルは握り潰さず伝播させる。
         } catch {
             throw BackendError.transport(error.localizedDescription)
         }

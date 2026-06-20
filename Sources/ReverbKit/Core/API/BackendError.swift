@@ -1,7 +1,7 @@
 import Foundation
 
 /// バックエンド連携で発生するエラー。失敗は黙ってスキップせず必ず理由を持つ（ルール / §5）。
-public enum BackendError: Error, Sendable, Equatable {
+public enum BackendError: Error, Sendable, Equatable, LocalizedError {
     /// HTTP 非 2xx だがエラーボディを解釈できた場合（01-architecture §5）。
     case api(BackendErrorBody, statusCode: Int)
     /// HTTP 非 2xx でボディを解釈できなかった場合。
@@ -13,7 +13,9 @@ public enum BackendError: Error, Sendable, Equatable {
     /// レスポンスが HTTPURLResponse でない等の不正応答。
     case invalidResponse
 
-    public var localizedDescription: String {
+    // LocalizedError.errorDescription を実装する。これにより generic Error / NSError 経由でも
+    // カスタムメッセージが保持される（localizedDescription はこの値を返すようになる）。
+    public var errorDescription: String? {
         switch self {
         case let .api(body, statusCode):
             return "[\(statusCode)] \(body.code): \(body.message)"

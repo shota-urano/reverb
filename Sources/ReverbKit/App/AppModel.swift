@@ -73,6 +73,13 @@ public final class AppModel {
             self.health = try await modelRepository.health()
             connection = .ready
         } catch {
+            // launch 成功後（/health 失敗等）に失敗した場合も、サイドカーを停止し参照を解放する。
+            // 放置するとバックエンドプロセスが残留し、次の start() で多重起動になりうる。
+            await launcher.terminate()
+            client = nil
+            jobRepository = nil
+            modelRepository = nil
+            health = nil
             connection = .failed(describe(error))
         }
     }

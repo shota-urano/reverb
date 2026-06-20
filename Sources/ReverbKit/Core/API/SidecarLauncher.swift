@@ -1,4 +1,5 @@
 import Foundation
+import Darwin // kill(2) / SIGKILL
 
 /// サイドカー（Python バックエンド）の子プロセス起動・監視・終了を担う境界（01-architecture §3）。
 /// テスト時はモックに差し替えられるよう protocol で切る（実プロセスを起動しない）。
@@ -148,6 +149,14 @@ public actor ProcessSidecarLauncher: SidecarLauncher {
         // terminationHandler による予期せぬ終了通知を抑止してから停止する。
         process.terminationHandler = nil
         process.terminate() // SIGTERM
+        // 子が SIGTERM を無視する場合に備え、猶予後に SIGKILL で強制終了する（§3.2 の契約）。
+        let deadline = ContinuousClock.now + .seconds(5)
+        while process.isRunning && ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        if process.isRunning {
+            _ = Darwin.kill(process.processIdentifier, SIGKILL)
+        }
         self.process = nil
     }
 

@@ -27,9 +27,14 @@ public struct AppSidebar: View {
                             .foregroundStyle(.secondary)
                     } else {
                         ForEach(model.recentProjects) { project in
-                            RecentProjectRow(project: project)
-                                .contentShape(Rectangle())
-                                .onTapGesture { model.open(project) }
+                            // キーボード操作・VoiceOver に対応するため Button で活性化する（§7）。
+                            Button {
+                                model.open(project)
+                            } label: {
+                                RecentProjectRow(project: project)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                 }
