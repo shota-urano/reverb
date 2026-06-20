@@ -110,12 +110,6 @@ class TranslateStage(Stage):
                 retryable=True,
             )
 
-        raise StageError(
-            "TRANSLATE_MISALIGN",
-            "Translated segment count did not match input segment count.",
-            retryable=True,
-        )
-
 
 def _chunks(segments: list[TranscriptSegment], chunk_size: int) -> list[list[TranscriptSegment]]:
     size = max(1, chunk_size)

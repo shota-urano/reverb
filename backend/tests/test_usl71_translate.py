@@ -150,6 +150,7 @@ def test_translate_misalign_after_retry_fails_with_translate_misalign(tmp_path: 
     assert record.status == JobState.failed
     assert record.error is not None
     assert record.error.code == "TRANSLATE_MISALIGN"
+    assert record.error.retryable is True
     assert record.stages[StageName.translate].status == StageState.failed
 
 
