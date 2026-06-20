@@ -1,0 +1,262 @@
+from __future__ import annotations
+
+import io
+import logging
+import wave
+from pathlib import Path
+from typing import Optional
+
+from core.artifacts import AUDIO_PATH, VOICEOVER_PATH, get_cue_wav_path, write_subtitles
+from core.config import BackendConfig
+from core.errors import StageError
+from core.job_store import JobRecord, JobStore
+from pipeline.mix import MixStage
+from schemas.artifacts import SubtitleCue, Subtitles
+from schemas.enums import JobState, StageName, StageState
+from schemas.settings import default_job_settings
+from services.job_service import build_pipeline_stages
+from services.pipeline_runner import PipelineRunner
+
+
+class FakeMixer:
+    def __init__(self, error: Optional[StageError] = None) -> None:
+        self.error = error
+        self.calls: list[dict] = []
+
+    def mix_voiceover(
+        self,
+        original_audio_path: Path,
+        cue_inputs: list[tuple[Path, float]],
+        out_path: Path,
+        duration: float,
+        ja_volume: float,
+        original_volume: float,
+    ) -> None:
+        self.calls.append(
+            {
+                "original_audio_path": original_audio_path,
+                "cue_inputs": cue_inputs,
+                "out_path": out_path,
+                "duration": duration,
+                "ja_volume": ja_volume,
+                "original_volume": original_volume,
+            }
+        )
+        if self.error:
+            raise self.error
+        out_path.write_bytes(b"voiceover")
+
+
+class FakeVoicevox:
+    def __init__(
+        self,
+        *,
+        responses: Optional[list[bytes]] = None,
+        errors: Optional[dict[str, list[StageError]]] = None,
+    ) -> None:
+        self.responses = responses if responses is not None else []
+        self.errors = errors if errors is not None else {}
+        self.calls: list[dict] = []
+
+    def synthesize(
+        self,
+        text: str,
+        speaker_id: int,
+        style_id: int,
+        speed_scale: float = 1.0,
+    ) -> bytes:
+        self.calls.append(
+            {
+                "text": text,
+                "speaker_id": speaker_id,
+                "style_id": style_id,
+                "speed_scale": speed_scale,
+            }
+        )
+        if self.errors.get(text):
+            raise self.errors[text].pop(0)
+        if self.responses:
+            return self.responses.pop(0)
+        return _wav_bytes(1.0)
+
+
+def test_mix_places_cues_from_start_times_outputs_voiceover_and_reports_progress(
+    tmp_path: Path,
+) -> None:
+    mixer = FakeMixer()
+    voicevox = FakeVoicevox()
+
+    record, notifications = _run_pipeline(
+        tmp_path,
+        mixer,
+        voicevox,
+        duration=5.0,
+        cues=[
+            SubtitleCue(id=0, start=0.0, end=1.0, lines=["最初です。"], segmentIds=[0]),
+            SubtitleCue(id=1, start=2.0, end=3.0, lines=["次です。"], segmentIds=[1]),
+        ],
+        cue_durations={0: 1.0, 1: 1.0},
+    )
+
+    assert record.status == JobState.done
+    assert record.stages[StageName.mix].status == StageState.done
+    assert record.stages[StageName.mix].artifact == str(VOICEOVER_PATH)
+    assert (record.project_dir / VOICEOVER_PATH).read_bytes() == b"voiceover"
+    assert mixer.calls == [
+        {
+            "original_audio_path": record.project_dir / AUDIO_PATH,
+            "cue_inputs": [
+                (get_cue_wav_path(record.project_dir, 0), 0.0),
+                (get_cue_wav_path(record.project_dir, 1), 2.0),
+            ],
+            "out_path": record.project_dir / VOICEOVER_PATH,
+            "duration": 5.0,
+            "ja_volume": record.settings.mix.jaVolume,
+            "original_volume": record.settings.mix.originalVolume,
+        }
+    ]
+    mix_progress = [
+        snapshot.stages[5].progress for snapshot in notifications if snapshot.currentStage == "mix"
+    ]
+    assert mix_progress[0] == 0.0
+    assert mix_progress[-1] == 1.0
+
+
+def test_mix_clamps_speed_scale_resynthesizes_and_passes_configured_volumes(
+    tmp_path: Path,
+) -> None:
+    mixer = FakeMixer()
+    voicevox = FakeVoicevox(responses=[_wav_bytes(1.3), _wav_bytes(1.6)])
+
+    record, _ = _run_pipeline(
+        tmp_path,
+        mixer,
+        voicevox,
+        duration=8.0,
+        cues=[
+            SubtitleCue(id=0, start=0.0, end=1.0, lines=["長い音声。"], segmentIds=[0]),
+            SubtitleCue(id=1, start=3.0, end=5.0, lines=["短い音声。"], segmentIds=[1]),
+        ],
+        cue_durations={0: 2.0, 1: 1.0},
+        config=BackendConfig(ja_volume=0.7, original_volume=0.12).with_projects_dir(tmp_path),
+    )
+
+    assert record.status == JobState.done
+    assert voicevox.calls == [
+        {
+            "text": "長い音声。",
+            "speaker_id": record.settings.tts.speakerId,
+            "style_id": record.settings.tts.styleId,
+            "speed_scale": 1.3,
+        },
+        {
+            "text": "短い音声。",
+            "speaker_id": record.settings.tts.speakerId,
+            "style_id": record.settings.tts.styleId,
+            "speed_scale": 0.8,
+        },
+    ]
+    assert mixer.calls[0]["cue_inputs"] == [
+        (get_cue_wav_path(record.project_dir, 0), 0.0),
+        (get_cue_wav_path(record.project_dir, 1), 3.0),
+    ]
+    assert mixer.calls[0]["ja_volume"] == 0.7
+    assert mixer.calls[0]["original_volume"] == 0.12
+
+
+def test_mix_missing_cue_warns_and_continues(tmp_path: Path, caplog) -> None:
+    mixer = FakeMixer()
+    voicevox = FakeVoicevox()
+
+    with caplog.at_level(logging.WARNING):
+        record, _ = _run_pipeline(
+            tmp_path,
+            mixer,
+            voicevox,
+            duration=4.0,
+            cues=[
+                SubtitleCue(id=0, start=0.0, end=1.0, lines=["欠落。"], segmentIds=[0]),
+                SubtitleCue(id=1, start=1.5, end=2.5, lines=["続き。"], segmentIds=[1]),
+            ],
+            cue_durations={1: 1.0},
+        )
+
+    assert record.status == JobState.done
+    assert record.stages[StageName.mix].status == StageState.done
+    assert mixer.calls[0]["cue_inputs"] == [(get_cue_wav_path(record.project_dir, 1), 1.5)]
+    assert "missing or empty TTS cue" in caplog.text
+
+
+def test_mix_ffmpeg_failure_fails_job_with_mix_failed(tmp_path: Path) -> None:
+    mixer = FakeMixer(error=StageError("MIX_FAILED", "ffmpeg stderr"))
+    voicevox = FakeVoicevox()
+
+    record, _ = _run_pipeline(
+        tmp_path,
+        mixer,
+        voicevox,
+        duration=2.0,
+        cues=[SubtitleCue(id=0, start=0.0, end=1.0, lines=["失敗。"], segmentIds=[0])],
+        cue_durations={0: 1.0},
+    )
+
+    assert record.status == JobState.failed
+    assert record.error is not None
+    assert record.error.code == "MIX_FAILED"
+    assert record.error.message == "ffmpeg stderr"
+    assert record.stages[StageName.mix].status == StageState.failed
+
+
+def test_build_pipeline_stages_uses_real_mix_stage() -> None:
+    stages = build_pipeline_stages(
+        FakeMixer(),  # type: ignore[arg-type]
+        object(),  # type: ignore[arg-type]
+        object(),  # type: ignore[arg-type]
+        FakeVoicevox(),
+    )
+
+    assert isinstance(stages[-1], MixStage)
+
+
+def _run_pipeline(
+    tmp_path: Path,
+    mixer: FakeMixer,
+    voicevox: FakeVoicevox,
+    *,
+    duration: float,
+    cues: list[SubtitleCue],
+    cue_durations: dict[int, float],
+    config: Optional[BackendConfig] = None,
+) -> tuple[JobRecord, list]:
+    config = config or BackendConfig().with_projects_dir(tmp_path)
+    store = JobStore(config.projects_dir)
+    record = store.create("/tmp/input.mp4", default_job_settings(config))
+    record.duration = duration
+    (record.project_dir / AUDIO_PATH).write_bytes(_wav_bytes(duration))
+    write_subtitles(record.project_dir, Subtitles(cues=cues))
+    for cue_id, cue_duration in cue_durations.items():
+        cue_path = get_cue_wav_path(record.project_dir, cue_id)
+        cue_path.parent.mkdir(parents=True, exist_ok=True)
+        cue_path.write_bytes(_wav_bytes(cue_duration))
+
+    notifications = []
+    runner = PipelineRunner(
+        config,
+        store,
+        [MixStage(mixer, voicevox)],
+        lambda job: notifications.append(job.snapshot()),
+    )
+
+    runner.run(record)
+    return record, notifications
+
+
+def _wav_bytes(duration: float, sample_rate: int = 24_000) -> bytes:
+    buffer = io.BytesIO()
+    frame_count = int(duration * sample_rate)
+    with wave.open(buffer, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(sample_rate)
+        wav.writeframes(b"\x00" * frame_count * 2)
+    return buffer.getvalue()

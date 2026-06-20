@@ -157,7 +157,9 @@ def _adjust_short_cues(cues: list[_DraftCue], config: BackendConfig) -> None:
                 logger.warning("Merged subtitle cue exceeds configured text capacity.")
             continue
 
-        logger.warning("Subtitle cue cannot reach minimum duration without overlap; extending tail.")
+        logger.warning(
+            "Subtitle cue cannot reach minimum duration without overlap; extending tail."
+        )
         cue.end = desired_end
         index += 1
 

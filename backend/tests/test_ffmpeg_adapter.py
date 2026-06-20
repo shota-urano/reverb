@@ -8,7 +8,7 @@ from typing import List
 
 import pytest
 
-from adapters.ffmpeg import FFmpegAdapter, _parse_progress_time
+from adapters.ffmpeg import FFmpegAdapter, _parse_progress_time, _voiceover_filter_graph
 from core.errors import StageError
 
 
@@ -88,3 +88,11 @@ def test_extract_skips_unparseable_progress_lines(
 
     assert out_path.read_bytes() == b"wav"
     assert progress_values == [0.0, 0.5, 1.0]
+
+
+def test_voiceover_filter_graph_disables_amix_normalization() -> None:
+    filter_graph = _voiceover_filter_graph([(Path("ja.wav"), 1.0)], 10.0, 1.0, 0.08)
+
+    assert "normalize=0" in filter_graph
+    assert "volume=0.08" in filter_graph
+    assert "volume=1.0" in filter_graph

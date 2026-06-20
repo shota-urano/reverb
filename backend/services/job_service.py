@@ -8,14 +8,13 @@ from core.config import BackendConfig
 from core.errors import BackendError
 from core.job_store import JobRecord, JobStore
 from pipeline.extract import AudioExtractor, ExtractStage
+from pipeline.mix import MixStage
 from pipeline.stage import Stage
-from pipeline.stub_stages import StubStage
 from pipeline.subtitle import SubtitleStage
 from pipeline.transcribe import Transcriber, TranscribeStage
 from pipeline.tts import TtsStage, TtsSynthesizer
 from pipeline.translate import Translator, TranslateStage
 from schemas.enums import JobState, StageState
-from schemas.enums import StageName
 from schemas.jobs import CreateJobResponse, JobResult, JobStatus
 from schemas.settings import JobSettings, default_job_settings
 from services.pipeline_runner import PipelineRunner
@@ -119,5 +118,5 @@ def build_pipeline_stages(
         TranslateStage(translator),
         SubtitleStage(),
         TtsStage(voicevox),
-        StubStage(StageName.mix, "voiceover.wav"),
+        MixStage(ffmpeg, voicevox),
     ]

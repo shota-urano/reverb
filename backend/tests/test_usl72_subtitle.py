@@ -176,14 +176,17 @@ def test_subtitle_sorts_out_of_order_segments_and_warns(
     assert all(cue.start <= cue.end for cue in subtitles.cues)
     assert [cue.start for cue in subtitles.cues] == sorted(cue.start for cue in subtitles.cues)
     assert _has_no_overlaps(subtitles.cues)
-    assert len(
-        [
-            record
-            for record in caplog.records
-            if record.name == "pipeline.subtitle"
-            and "Translation segments are not sorted by start time" in record.message
-        ]
-    ) == 1
+    assert (
+        len(
+            [
+                record
+                for record in caplog.records
+                if record.name == "pipeline.subtitle"
+                and "Translation segments are not sorted by start time" in record.message
+            ]
+        )
+        == 1
+    )
 
 
 def _run_pipeline(
@@ -198,17 +201,19 @@ def _run_pipeline(
         model=record.settings.translate.model,
         sourceLanguage="en",
         targetLanguage="ja",
-        segments=segments
-        if segments is not None
-        else [
-            TranslationSegment(
-                id=0,
-                start=0.0,
-                end=2.0,
-                source="Hello.",
-                target="こんにちは。",
-            )
-        ],
+        segments=(
+            segments
+            if segments is not None
+            else [
+                TranslationSegment(
+                    id=0,
+                    start=0.0,
+                    end=2.0,
+                    source="Hello.",
+                    target="こんにちは。",
+                )
+            ]
+        ),
     )
     write_translation(record.project_dir, translation)
 
