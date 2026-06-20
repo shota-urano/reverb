@@ -35,6 +35,69 @@ struct MockBackendClient: BackendClient {
     func shutdown() async {}
 }
 
+/// 設定可能なテスト用 JobRepository。createJob の成否と渡された videoPath を制御・記録する。
+struct StubJobRepository: JobRepository {
+    var createResponse = CreateJobResponse(jobId: "j_stub", projectId: "p_stub", status: .queued)
+    /// 非 nil なら createJob はこのエラーで失敗する。
+    var createError: BackendError?
+    /// createJob に渡された videoPath の記録。
+    var recorder = CallRecorder()
+
+    func createJob(videoPath: String, settings: JobSettings?) async throws -> CreateJobResponse {
+        recorder.record(videoPath)
+        if let createError { throw createError }
+        return createResponse
+    }
+    func job(id: String) async throws -> JobStatus { throw BackendError.invalidResponse }
+    func cancel(id: String) async throws {}
+    func result(id: String) async throws -> JobResult { throw BackendError.invalidResponse }
+    func events(id: String) -> AsyncThrowingStream<JobEvent, Error> {
+        AsyncThrowingStream { $0.finish() }
+    }
+}
+
+/// createJob を任意のタイミングまで中断させられる JobRepository。再入ガードの検証に使う。
+/// `waitUntilStarted()` で「createJob に入った」ことを待ち、`release()` まで応答を保留する。
+actor BlockingJobRepository: JobRepository {
+    private(set) var callCount = 0
+    private var gate: CheckedContinuation<Void, Never>?
+    private var startedSignal: CheckedContinuation<Void, Never>?
+
+    /// createJob が実際に呼ばれるまで待つ。
+    func waitUntilStarted() async {
+        await withCheckedContinuation { startedSignal = $0 }
+    }
+
+    /// 中断中の createJob を再開させる。
+    func release() {
+        gate?.resume()
+        gate = nil
+    }
+
+    func createJob(videoPath: String, settings: JobSettings?) async throws -> CreateJobResponse {
+        callCount += 1
+        startedSignal?.resume()
+        startedSignal = nil
+        await withCheckedContinuation { gate = $0 } // release() まで保留（actor 隔離下で gate を確定）
+        return CreateJobResponse(jobId: "j_block", projectId: "p_block", status: .queued)
+    }
+
+    func job(id: String) async throws -> JobStatus { throw BackendError.invalidResponse }
+    func cancel(id: String) async throws {}
+    func result(id: String) async throws -> JobResult { throw BackendError.invalidResponse }
+    nonisolated func events(id: String) -> AsyncThrowingStream<JobEvent, Error> {
+        AsyncThrowingStream { $0.finish() }
+    }
+}
+
+/// createJob に渡された videoPath を安全に記録する小箱。
+final class CallRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [String] = []
+    var paths: [String] { lock.withLock { storage } }
+    func record(_ path: String) { lock.withLock { storage.append(path) } }
+}
+
 /// テスト用のサイドカー起動。プロセスを起動せず固定ハンドシェイクを返す。
 struct MockSidecarLauncher: SidecarLauncher {
     var handshake = ReadyHandshake(
