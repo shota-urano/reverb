@@ -12,6 +12,7 @@ from pipeline.stage import Stage
 from pipeline.stub_stages import StubStage
 from pipeline.subtitle import SubtitleStage
 from pipeline.transcribe import Transcriber, TranscribeStage
+from pipeline.tts import TtsStage, TtsSynthesizer
 from pipeline.translate import Translator, TranslateStage
 from schemas.enums import JobState, StageState
 from schemas.enums import StageName
@@ -28,6 +29,7 @@ class JobService:
         ffmpeg: AudioExtractor,
         whisper: Transcriber,
         ollama: Translator,
+        voicevox: TtsSynthesizer,
     ) -> None:
         self.config = config
         self.store = store
@@ -36,7 +38,7 @@ class JobService:
         self.runner = PipelineRunner(
             config,
             store,
-            build_pipeline_stages(ffmpeg, whisper, ollama),
+            build_pipeline_stages(ffmpeg, whisper, ollama, voicevox),
             self._notify,
         )
 
@@ -109,12 +111,13 @@ def build_pipeline_stages(
     ffmpeg: AudioExtractor,
     whisper: Transcriber,
     translator: Translator,
+    voicevox: TtsSynthesizer,
 ) -> List[Stage]:
     return [
         ExtractStage(ffmpeg),
         TranscribeStage(whisper),
         TranslateStage(translator),
         SubtitleStage(),
-        StubStage(StageName.tts, "tts/cue_0000.wav"),
+        TtsStage(voicevox),
         StubStage(StageName.mix, "voiceover.wav"),
     ]

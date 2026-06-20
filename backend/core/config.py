@@ -70,6 +70,12 @@ class BackendConfig:
         default_factory=lambda: os.getenv("REVERB_SPEAKER_NAME", "青山龍星")
     )
     default_style_id: int = field(default_factory=lambda: _env_int("REVERB_STYLE_ID", 0))
+    voicevox_synthesis_timeout_seconds: float = field(
+        default_factory=lambda: _env_float("REVERB_VOICEVOX_SYNTHESIS_TIMEOUT_SECONDS", 30.0)
+    )
+    tts_cue_retry_count: int = field(
+        default_factory=lambda: _env_int("REVERB_TTS_CUE_RETRY_COUNT", 2)
+    )
 
     ja_volume: float = 1.0
     original_volume: float = 0.08
@@ -99,6 +105,10 @@ class BackendConfig:
             raise ValueError("REVERB_TRANSLATE_CONTEXT_WINDOW must be greater than or equal to 0")
         if not self.translate_system_prompt:
             raise ValueError("REVERB_TRANSLATE_SYSTEM_PROMPT must not be empty")
+        if self.voicevox_synthesis_timeout_seconds <= 0:
+            raise ValueError("REVERB_VOICEVOX_SYNTHESIS_TIMEOUT_SECONDS must be greater than 0")
+        if self.tts_cue_retry_count < 0:
+            raise ValueError("REVERB_TTS_CUE_RETRY_COUNT must be greater than or equal to 0")
 
     def with_projects_dir(self, projects_dir: Path) -> "BackendConfig":
         return BackendConfig(
@@ -124,6 +134,8 @@ class BackendConfig:
             default_speaker_id=self.default_speaker_id,
             default_speaker_name=self.default_speaker_name,
             default_style_id=self.default_style_id,
+            voicevox_synthesis_timeout_seconds=self.voicevox_synthesis_timeout_seconds,
+            tts_cue_retry_count=self.tts_cue_retry_count,
             ja_volume=self.ja_volume,
             original_volume=self.original_volume,
             subtitle_target_full_width_chars=self.subtitle_target_full_width_chars,

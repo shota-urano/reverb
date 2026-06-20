@@ -40,6 +40,7 @@ def create_app(projects_dir: Optional[Path] = None) -> FastAPI:
     app.state.voicevox = VoicevoxAdapter(
         config.voicevox_base_url,
         config.dependency_timeout_seconds,
+        config.voicevox_synthesis_timeout_seconds,
     )
     app.state.job_store = JobStore(config.projects_dir)
     app.state.job_service = JobService(
@@ -48,6 +49,7 @@ def create_app(projects_dir: Optional[Path] = None) -> FastAPI:
         app.state.ffmpeg,
         app.state.whisper,
         app.state.ollama,
+        app.state.voicevox,
     )
     app.include_router(meta_router)
     app.include_router(jobs_router)
