@@ -152,3 +152,105 @@ class FFmpegAdapter:
         finally:
             if tmp_path.exists():
                 tmp_path.unlink()
+
+    def mix_voiceover(
+        self,
+        original_audio_path: Path,
+        cue_inputs: list[tuple[Path, float]],
+        out_path: Path,
+        duration: float,
+        ja_volume: float,
+        original_volume: float,
+    ) -> None:
+        if shutil.which(self.ffmpeg_bin) is None:
+            raise StageError(
+                code="MIX_FAILED",
+                message=f"ffmpeg binary not found: {self.ffmpeg_bin}",
+            )
+
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = out_path.with_name(f"{out_path.name}.tmp")
+        command = self._mix_voiceover_command(
+            original_audio_path,
+            cue_inputs,
+            tmp_path,
+            duration,
+            ja_volume,
+            original_volume,
+        )
+
+        try:
+            result = subprocess.run(
+                command,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                raise StageError(code="MIX_FAILED", message=result.stderr.strip())
+            os.replace(tmp_path, out_path)
+        finally:
+            if tmp_path.exists():
+                tmp_path.unlink()
+
+    def _mix_voiceover_command(
+        self,
+        original_audio_path: Path,
+        cue_inputs: list[tuple[Path, float]],
+        out_path: Path,
+        duration: float,
+        ja_volume: float,
+        original_volume: float,
+    ) -> list[str]:
+        command = [self.ffmpeg_bin, "-i", str(original_audio_path)]
+        for path, _ in cue_inputs:
+            command.extend(["-i", str(path)])
+
+        filter_complex = _voiceover_filter_graph(cue_inputs, duration, ja_volume, original_volume)
+        command.extend(
+            [
+                "-filter_complex",
+                filter_complex,
+                "-map",
+                "[out]",
+                "-c:a",
+                "pcm_s16le",
+                "-y",
+                "-f",
+                "wav",
+                str(out_path),
+            ]
+        )
+        return command
+
+
+def _voiceover_filter_graph(
+    cue_inputs: list[tuple[Path, float]],
+    duration: float,
+    ja_volume: float,
+    original_volume: float,
+) -> str:
+    limit_filter = f",apad,atrim=0:{duration:.6f}" if duration > 0 else ""
+    parts = [f"[0:a]volume={original_volume}{limit_filter},asetpts=N/SR/TB[orig]"]
+    labels = ["[orig]"]
+
+    for index, (_, start) in enumerate(cue_inputs):
+        delay_ms = max(0, int(round(start * 1000)))
+        label = f"cue{index}"
+        parts.append(
+            f"[{index + 1}:a]adelay={delay_ms}:all=1,"
+            f"volume={ja_volume}{limit_filter},asetpts=N/SR/TB[{label}]"
+        )
+        labels.append(f"[{label}]")
+
+    if len(labels) == 1:
+        parts.append("[orig]anull[out]")
+        return ";".join(parts)
+
+    mixed_limit_filter = f",atrim=0:{duration:.6f}" if duration > 0 else ""
+    parts.append(
+        "".join(labels)
+        + f"amix=inputs={len(labels)}:duration=longest:dropout_transition=0:normalize=0"
+        + f"{mixed_limit_filter},asetpts=N/SR/TB[out]"
+    )
+    return ";".join(parts)
