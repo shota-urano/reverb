@@ -11,6 +11,7 @@ from pipeline.extract import AudioExtractor, ExtractStage
 from pipeline.stage import Stage
 from pipeline.stub_stages import StubStage
 from pipeline.transcribe import Transcriber, TranscribeStage
+from pipeline.translate import Translator, TranslateStage
 from schemas.enums import JobState, StageState
 from schemas.enums import StageName
 from schemas.jobs import CreateJobResponse, JobResult, JobStatus
@@ -25,6 +26,7 @@ class JobService:
         store: JobStore,
         ffmpeg: AudioExtractor,
         whisper: Transcriber,
+        ollama: Translator,
     ) -> None:
         self.config = config
         self.store = store
@@ -33,7 +35,7 @@ class JobService:
         self.runner = PipelineRunner(
             config,
             store,
-            build_pipeline_stages(ffmpeg, whisper),
+            build_pipeline_stages(ffmpeg, whisper, ollama),
             self._notify,
         )
 
@@ -102,11 +104,15 @@ class JobService:
             queue.put(snapshot)
 
 
-def build_pipeline_stages(ffmpeg: AudioExtractor, whisper: Transcriber) -> List[Stage]:
+def build_pipeline_stages(
+    ffmpeg: AudioExtractor,
+    whisper: Transcriber,
+    translator: Translator,
+) -> List[Stage]:
     return [
         ExtractStage(ffmpeg),
         TranscribeStage(whisper),
-        StubStage(StageName.translate, "translation.json"),
+        TranslateStage(translator),
         StubStage(StageName.subtitle, "subtitles.json"),
         StubStage(StageName.tts, "tts/cue_0000.wav"),
         StubStage(StageName.mix, "voiceover.wav"),

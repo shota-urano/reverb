@@ -35,6 +35,7 @@ def create_app(projects_dir: Optional[Path] = None) -> FastAPI:
     app.state.ollama = OllamaAdapter(
         config.ollama_base_url,
         config.dependency_timeout_seconds,
+        config.translate_timeout_seconds,
     )
     app.state.voicevox = VoicevoxAdapter(
         config.voicevox_base_url,
@@ -46,6 +47,7 @@ def create_app(projects_dir: Optional[Path] = None) -> FastAPI:
         app.state.job_store,
         app.state.ffmpeg,
         app.state.whisper,
+        app.state.ollama,
     )
     app.include_router(meta_router)
     app.include_router(jobs_router)
