@@ -56,6 +56,11 @@ def test_job_create_runs_stub_pipeline_to_done(tmp_path: Path) -> None:
         Path(out_path).write_bytes(b"wav"),
         progress_cb(1.0),
     )
+    app.state.whisper.transcribe = lambda _audio, _model, language, _options, progress_cb: (
+        progress_cb(0.0),
+        progress_cb(1.0),
+        (language, []),
+    )[-1]
     client = TestClient(app)
 
     response = client.post("/jobs", json={"videoPath": "/tmp/input.mp4"})

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Dict
 
 from core.net import validate_loopback_host, validate_loopback_url
 
@@ -37,6 +38,10 @@ class BackendConfig:
     default_stt_model: str = field(
         default_factory=lambda: os.getenv("REVERB_STT_MODEL", "large-v3")
     )
+    # 論理STTモデル名 → mlx-whisper の HF リポジトリ解決表。タグはここ（設定値）に集約。
+    # 導入時に最新タグ確認: https://huggingface.co/mlx-community
+    # REVERB_STT_MODEL_REPOS="large-v3=mlx-community/whisper-large-v3-mlx,..." で上書き可。
+    stt_model_repos: Dict[str, str] = field(default_factory=lambda: _stt_model_repos())
     default_translate_model: str = field(
         default_factory=lambda: os.getenv("REVERB_TRANSLATE_MODEL", "qwen3:30b")
     )
@@ -82,6 +87,7 @@ class BackendConfig:
             extract_codec=self.extract_codec,
             default_stt_engine=self.default_stt_engine,
             default_stt_model=self.default_stt_model,
+            stt_model_repos=self.stt_model_repos,
             default_translate_model=self.default_translate_model,
             default_speaker_id=self.default_speaker_id,
             default_speaker_name=self.default_speaker_name,
@@ -93,6 +99,25 @@ class BackendConfig:
             subtitle_min_duration_seconds=self.subtitle_min_duration_seconds,
             projects_dir=projects_dir,
         )
+
+
+def _stt_model_repos() -> Dict[str, str]:
+    """論理STTモデル名→HFリポジトリの解決表。既定値はここに集約し、ハードコード散在を防ぐ。
+    導入時に最新タグ確認: https://huggingface.co/mlx-community 。環境変数で上書き可。"""
+    defaults = {
+        "large-v3": "mlx-community/whisper-large-v3-mlx",
+        "turbo": "mlx-community/whisper-large-v3-turbo",
+    }
+    raw = os.getenv("REVERB_STT_MODEL_REPOS")
+    if not raw:
+        return defaults
+    overrides: Dict[str, str] = {}
+    for pair in raw.split(","):
+        name, sep, repo = pair.partition("=")
+        name, repo = name.strip(), repo.strip()
+        if sep and name and repo:
+            overrides[name] = repo
+    return {**defaults, **overrides}
 
 
 def _default_projects_dir() -> Path:
