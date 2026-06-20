@@ -1,18 +1,26 @@
 from __future__ import annotations
 
 import json
+import urllib.error
 import urllib.request
-from typing import List
+from typing import List, Optional
 
+from core.errors import StageError
 from core.net import validate_loopback_url
 
 
 class OllamaAdapter:
-    def __init__(self, base_url: str, timeout_seconds: float) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        timeout_seconds: float,
+        translate_timeout_seconds: Optional[float] = None,
+    ) -> None:
         # ローカル完結（ルール1）: 翻訳トラフィックを非ローカルへ流さないよう
         # 構築時にループバックのみへ制限する。
         self.base_url = validate_loopback_url("ollama_base_url", base_url)
         self.timeout_seconds = timeout_seconds
+        self.translate_timeout_seconds = translate_timeout_seconds or timeout_seconds
 
     def ping(self) -> bool:
         try:
@@ -30,6 +38,40 @@ class OllamaAdapter:
         names = [model.get("name") for model in models if isinstance(model, dict)]
         return [name for name in names if isinstance(name, str)]
 
+    def translate(
+        self,
+        segments: list[dict[str, object]],
+        model: str,
+        source_lang: Optional[str],
+        system_prompt: str,
+        context_window: int,
+    ) -> list[str]:
+        context_segments = [segment for segment in segments if segment.get("contextOnly")]
+        input_segments = [segment for segment in segments if not segment.get("contextOnly")]
+        payload = {
+            "model": model,
+            "stream": False,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {
+                    "role": "user",
+                    "content": _translation_user_content(
+                        source_lang,
+                        context_window,
+                        context_segments,
+                        input_segments,
+                    ),
+                },
+            ],
+        }
+        response = self._post_json("/api/chat", payload, model)
+        message = response.get("message", {})
+        content = message.get("content") if isinstance(message, dict) else None
+        if not isinstance(content, str):
+            return []
+        parsed = _parse_translation_array(content)
+        return [str(item).replace("\n", " ").strip() for item in parsed]
+
     def _get_json(self, path: str) -> dict:
         request = urllib.request.Request(
             self.base_url + path,
@@ -38,3 +80,86 @@ class OllamaAdapter:
         )
         with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
             return json.loads(response.read().decode("utf-8"))
+
+    def _post_json(self, path: str, payload: dict, model: str) -> dict:
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        request = urllib.request.Request(
+            self.base_url + path,
+            data=body,
+            method="POST",
+            headers={
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+            },
+        )
+        try:
+            with urllib.request.urlopen(
+                request,
+                timeout=self.translate_timeout_seconds,
+            ) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            error_body = _read_error_body(exc)
+            if exc.code == 404 and "not found" in error_body.lower():
+                raise StageError("MODEL_MISSING", _model_missing_message(model)) from exc
+            raise StageError("OLLAMA_UNAVAILABLE", error_body or str(exc), retryable=True) from exc
+        except (OSError, TimeoutError, urllib.error.URLError) as exc:
+            raise StageError("OLLAMA_UNAVAILABLE", str(exc), retryable=True) from exc
+
+
+def _translation_user_content(
+    source_lang: Optional[str],
+    context_window: int,
+    context_segments: list[dict[str, object]],
+    input_segments: list[dict[str, object]],
+) -> str:
+    return json.dumps(
+        {
+            "sourceLanguage": source_lang,
+            "contextWindow": context_window,
+            "contextSegments": _segment_text_payload(context_segments),
+            "inputSegments": _segment_text_payload(input_segments),
+        },
+        ensure_ascii=False,
+    )
+
+
+def _segment_text_payload(segments: list[dict[str, object]]) -> list[dict[str, object]]:
+    return [
+        {
+            "id": segment.get("id"),
+            "text": segment.get("text", ""),
+        }
+        for segment in segments
+    ]
+
+
+def _parse_translation_array(content: str) -> list[object]:
+    try:
+        parsed = json.loads(content)
+    except json.JSONDecodeError:
+        start = content.find("[")
+        end = content.rfind("]")
+        if start < 0 or end <= start:
+            return []
+        try:
+            parsed = json.loads(content[start : end + 1])
+        except json.JSONDecodeError:
+            return []
+    if not isinstance(parsed, list):
+        return []
+    return parsed
+
+
+def _read_error_body(exc: urllib.error.HTTPError) -> str:
+    try:
+        return exc.read().decode("utf-8")
+    except Exception:
+        return str(exc)
+
+
+def _model_missing_message(model: str) -> str:
+    return (
+        f"Ollama model is not available locally: {model}. "
+        f"Run `ollama pull {model}` before running Reverb."
+    )

@@ -42,8 +42,28 @@ class BackendConfig:
     # 導入時に最新タグ確認: https://huggingface.co/mlx-community
     # REVERB_STT_MODEL_REPOS="large-v3=mlx-community/whisper-large-v3-mlx,..." で上書き可。
     stt_model_repos: Dict[str, str] = field(default_factory=lambda: _stt_model_repos())
+    # NOTE: confirm latest model tag at install time. モデル名は設定値としてのみ扱う。
     default_translate_model: str = field(
         default_factory=lambda: os.getenv("REVERB_TRANSLATE_MODEL", "qwen3:30b")
+    )
+    translate_timeout_seconds: float = field(
+        default_factory=lambda: _env_float("REVERB_TRANSLATE_TIMEOUT_SECONDS", 120.0)
+    )
+    translate_chunk_size: int = field(
+        default_factory=lambda: _env_int("REVERB_TRANSLATE_CHUNK_SIZE", 10)
+    )
+    translate_context_window: int = field(
+        default_factory=lambda: _env_int("REVERB_TRANSLATE_CONTEXT_WINDOW", 2)
+    )
+    translate_system_prompt: str = field(
+        default_factory=lambda: os.getenv(
+            "REVERB_TRANSLATE_SYSTEM_PROMPT",
+            (
+                "です・ます調の自然な日本語ナレーション向け翻訳。字幕用に簡潔に。"
+                "記号・改行を入れない。出力は入力セグメントと同じ順序の"
+                "JSON文字列配列のみ。説明や余分な文字は入れない。"
+            ),
+        )
     )
     default_speaker_id: int = field(default_factory=lambda: _env_int("REVERB_SPEAKER_ID", 13))
     default_speaker_name: str = field(
@@ -71,6 +91,14 @@ class BackendConfig:
             raise ValueError("REVERB_EXTRACT_CHANNELS must be greater than 0")
         if not self.extract_codec:
             raise ValueError("REVERB_EXTRACT_CODEC must not be empty")
+        if self.translate_timeout_seconds <= 0:
+            raise ValueError("REVERB_TRANSLATE_TIMEOUT_SECONDS must be greater than 0")
+        if self.translate_chunk_size <= 0:
+            raise ValueError("REVERB_TRANSLATE_CHUNK_SIZE must be greater than 0")
+        if self.translate_context_window < 0:
+            raise ValueError("REVERB_TRANSLATE_CONTEXT_WINDOW must be greater than or equal to 0")
+        if not self.translate_system_prompt:
+            raise ValueError("REVERB_TRANSLATE_SYSTEM_PROMPT must not be empty")
 
     def with_projects_dir(self, projects_dir: Path) -> "BackendConfig":
         return BackendConfig(
@@ -89,6 +117,10 @@ class BackendConfig:
             default_stt_model=self.default_stt_model,
             stt_model_repos=self.stt_model_repos,
             default_translate_model=self.default_translate_model,
+            translate_timeout_seconds=self.translate_timeout_seconds,
+            translate_chunk_size=self.translate_chunk_size,
+            translate_context_window=self.translate_context_window,
+            translate_system_prompt=self.translate_system_prompt,
             default_speaker_id=self.default_speaker_id,
             default_speaker_name=self.default_speaker_name,
             default_style_id=self.default_style_id,
@@ -131,5 +163,16 @@ def _env_int(name: str, default: int) -> int:
         return default
     try:
         return int(raw)
+    except ValueError:
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    """環境変数を安全に float 解釈する。不正値なら既定値を返し起動を止めない。"""
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return float(raw)
     except ValueError:
         return default
