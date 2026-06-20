@@ -4,12 +4,15 @@ import json
 import urllib.request
 from typing import List
 
+from core.net import validate_loopback_url
 from schemas.meta import Speaker
 
 
 class VoicevoxAdapter:
     def __init__(self, base_url: str, timeout_seconds: float) -> None:
-        self.base_url = base_url.rstrip("/")
+        # ローカル完結（ルール1）: TTS データを外部サービスへ送らないよう
+        # 構築時にループバックのみへ制限する。
+        self.base_url = validate_loopback_url("voicevox_base_url", base_url)
         self.timeout_seconds = timeout_seconds
 
     def ping(self) -> bool:

@@ -51,11 +51,20 @@ class PipelineRunner:
 
                 artifact = stage.run(context)
 
+                # ステージ完了直後にキャンセル要求があれば done で上書きしない。
+                if record.status == JobState.canceled:
+                    self._mark_pending_canceled(record)
+                    return
+
                 stage_record.status = StageState.done
                 stage_record.progress = 1.0
                 stage_record.artifact = artifact
                 self.store.save(record)
                 self.notify(record)
+            # 最終ステージ実行中のキャンセルを done で上書きしないよう最後に再確認。
+            if record.status == JobState.canceled:
+                self._mark_pending_canceled(record)
+                return
             record.current_stage = None
             record.status = JobState.done
             record.duration = 0.0

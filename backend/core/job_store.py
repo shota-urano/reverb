@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
+import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import RLock
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from core.errors import BackendError, ErrorBody
 from core.ids import new_job_id, new_project_id
@@ -97,15 +98,30 @@ class JobStore:
 
     def get(self, job_id: str) -> JobRecord:
         with self._lock:
-            try:
-                return self._jobs[job_id]
-            except KeyError:
-                raise BackendError(
-                    code="JOB_NOT_FOUND",
-                    message=f"Job not found: {job_id}",
-                    status_code=404,
-                    retryable=False,
-                )
+            return self._require(job_id)
+
+    def mutate(self, job_id: str, fn: Callable[[JobRecord], None]) -> JobRecord:
+        """状態遷移を JobStore のロック下で一括実行し、永続化する。
+
+        get() で取得したレコードを外で書き換えると、別スレッド（runner と
+        cancel など）の更新と交錯し得るため、状態変更は本メソッド経由に集約する。
+        """
+        with self._lock:
+            record = self._require(job_id)
+            fn(record)
+            self.save(record)
+            return record
+
+    def _require(self, job_id: str) -> JobRecord:
+        try:
+            return self._jobs[job_id]
+        except KeyError:
+            raise BackendError(
+                code="JOB_NOT_FOUND",
+                message=f"Job not found: {job_id}",
+                status_code=404,
+                retryable=False,
+            )
 
     def save(self, record: JobRecord) -> None:
         with self._lock:
@@ -132,10 +148,15 @@ class JobStore:
                     },
                 },
             }
-            (record.project_dir / "project.json").write_text(
+            # アトミック書き込み: 一時ファイルへ書いてから置換し、
+            # 中断による project.json の破損（=再開時にジョブ消失）を防ぐ。
+            manifest_path = record.project_dir / "project.json"
+            tmp_path = record.project_dir / "project.json.tmp"
+            tmp_path.write_text(
                 json.dumps(manifest, ensure_ascii=False, indent=2),
                 encoding="utf-8",
             )
+            tmp_path.replace(manifest_path)
 
     def _load_existing(self) -> None:
         for manifest_path in self.projects_dir.glob("*/project.json"):
@@ -172,7 +193,14 @@ class JobStore:
                 error=error,
                 duration=float(payload.get("duration", 0.0)),
             )
-        except Exception:
+        except Exception as exc:
+            # 破損/不整合のマニフェストは黙って捨てず警告する（失敗を握りつぶさない）。
+            # 当該ファイルは保持したまま読み込み対象から除外し、他ジョブの再開を妨げない。
+            print(
+                f"[reverb] failed to load manifest {manifest_path}: {exc}",
+                file=sys.stderr,
+                flush=True,
+            )
             return None
 
     def all(self) -> List[JobRecord]:

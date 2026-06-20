@@ -4,12 +4,14 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from core.net import validate_loopback_host, validate_loopback_url
+
 
 @dataclass(frozen=True)
 class BackendConfig:
     version: str = "0.6.0"
     host: str = field(default_factory=lambda: os.getenv("REVERB_HOST", "127.0.0.1"))
-    port: int = field(default_factory=lambda: int(os.getenv("REVERB_PORT", "0")))
+    port: int = field(default_factory=lambda: _env_int("REVERB_PORT", 0))
     ollama_base_url: str = field(
         default_factory=lambda: os.getenv("REVERB_OLLAMA_BASE_URL", "http://127.0.0.1:11434")
     )
@@ -18,20 +20,19 @@ class BackendConfig:
     )
     dependency_timeout_seconds: float = 0.5
 
-    # 導入時に最新タグ確認。モデル名は設定値としてのみ扱い、処理には引数で渡す。
+    # 導入時に最新タグ確認 (verify latest tag at setup time)。
+    # モデル名は設定値としてのみ扱い、処理には引数で渡す。
     default_stt_model: str = field(
         default_factory=lambda: os.getenv("REVERB_STT_MODEL", "large-v3")
     )
     default_translate_model: str = field(
         default_factory=lambda: os.getenv("REVERB_TRANSLATE_MODEL", "qwen3:30b")
     )
-    default_speaker_id: int = field(
-        default_factory=lambda: int(os.getenv("REVERB_SPEAKER_ID", "13"))
-    )
+    default_speaker_id: int = field(default_factory=lambda: _env_int("REVERB_SPEAKER_ID", 13))
     default_speaker_name: str = field(
         default_factory=lambda: os.getenv("REVERB_SPEAKER_NAME", "青山龍星")
     )
-    default_style_id: int = field(default_factory=lambda: int(os.getenv("REVERB_STYLE_ID", "0")))
+    default_style_id: int = field(default_factory=lambda: _env_int("REVERB_STYLE_ID", 0))
 
     ja_volume: float = 1.0
     original_volume: float = 0.08
@@ -40,6 +41,13 @@ class BackendConfig:
     subtitle_min_duration_seconds: float = 1.5
 
     projects_dir: Path = field(default_factory=lambda: _default_projects_dir())
+
+    def __post_init__(self) -> None:
+        # ローカル完結（ルール1）を構造で担保: 待受ホスト・外部エンジンURLは
+        # ループバックのみ許可。クラウド/外部ホストが設定されたら起動時に弾く。
+        validate_loopback_host("REVERB_HOST", self.host)
+        validate_loopback_url("REVERB_OLLAMA_BASE_URL", self.ollama_base_url)
+        validate_loopback_url("REVERB_VOICEVOX_BASE_URL", self.voicevox_base_url)
 
     def with_projects_dir(self, projects_dir: Path) -> "BackendConfig":
         return BackendConfig(
@@ -65,3 +73,14 @@ class BackendConfig:
 
 def _default_projects_dir() -> Path:
     return Path.home() / "Library" / "Application Support" / "Reverb" / "projects"
+
+
+def _env_int(name: str, default: int) -> int:
+    """環境変数を安全に int 解釈する。不正値なら既定値を返し起動を止めない。"""
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default

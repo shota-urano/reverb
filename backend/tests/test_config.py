@@ -1,0 +1,37 @@
+import dataclasses
+
+import pytest
+
+from core.config import BackendConfig, _env_int
+from core.net import is_loopback_host, validate_loopback_url
+
+
+def test_env_int_falls_back_on_invalid_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("REVERB_TEST_INT", "not-a-number")
+    assert _env_int("REVERB_TEST_INT", 42) == 42
+    monkeypatch.setenv("REVERB_TEST_INT", "7")
+    assert _env_int("REVERB_TEST_INT", 42) == 7
+
+
+def test_loopback_host_detection() -> None:
+    assert is_loopback_host("127.0.0.1")
+    assert is_loopback_host("localhost")
+    assert is_loopback_host("::1")
+    assert not is_loopback_host("0.0.0.0")
+    assert not is_loopback_host("example.com")
+    assert not is_loopback_host("10.0.0.5")
+
+
+def test_validate_loopback_url_rejects_external_host() -> None:
+    assert validate_loopback_url("ollama", "http://127.0.0.1:11434/") == "http://127.0.0.1:11434"
+    with pytest.raises(ValueError):
+        validate_loopback_url("ollama", "http://evil.example.com:11434")
+    with pytest.raises(ValueError):
+        validate_loopback_url("ollama", "ftp://127.0.0.1:11434")
+
+
+def test_backend_config_rejects_non_loopback_engine_url() -> None:
+    with pytest.raises(ValueError):
+        dataclasses.replace(BackendConfig(), ollama_base_url="http://cloud.example.com:11434")
+    with pytest.raises(ValueError):
+        dataclasses.replace(BackendConfig(), host="0.0.0.0")

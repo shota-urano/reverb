@@ -37,14 +37,21 @@ class JobService:
         return self.store.get(job_id).snapshot()
 
     def cancel_job(self, job_id: str) -> None:
-        record = self.store.get(job_id)
-        if record.status not in (JobState.done, JobState.failed, JobState.canceled):
+        changed = False
+
+        def apply(record: JobRecord) -> None:
+            nonlocal changed
+            if record.status in (JobState.done, JobState.failed, JobState.canceled):
+                return
             record.status = JobState.canceled
             record.current_stage = None
             for stage in record.stages.values():
                 if stage.status in (StageState.pending, StageState.running):
                     stage.status = StageState.canceled
-            self.store.save(record)
+            changed = True
+
+        record = self.store.mutate(job_id, apply)
+        if changed:
             self._notify(record)
 
     def result(self, job_id: str) -> JobResult:

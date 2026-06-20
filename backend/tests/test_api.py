@@ -17,7 +17,7 @@ def test_health_returns_dependency_availability_without_raising() -> None:
     assert response.status_code == 200
     assert response.json() == {
         "status": "ok",
-        "version": "0.6.0",
+        "version": app.state.config.version,
         "dependencies": {
             "ffmpeg": False,
             "mlx_whisper": False,

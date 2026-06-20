@@ -4,10 +4,14 @@ import json
 import urllib.request
 from typing import List
 
+from core.net import validate_loopback_url
+
 
 class OllamaAdapter:
     def __init__(self, base_url: str, timeout_seconds: float) -> None:
-        self.base_url = base_url.rstrip("/")
+        # ローカル完結（ルール1）: 翻訳トラフィックを非ローカルへ流さないよう
+        # 構築時にループバックのみへ制限する。
+        self.base_url = validate_loopback_url("ollama_base_url", base_url)
         self.timeout_seconds = timeout_seconds
 
     def ping(self) -> bool:
