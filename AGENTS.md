@@ -21,6 +21,14 @@ docsを確認する
 Frontend・・・Opus4.8
 backend・・・codex
 
+## git運用ルール
+develop：　baseとなるbranchなる | 全てのbranchはここから切り出す
+feature：　機能追加
+bug：　　　 バグ対応
+
+ex) feature/USL-79
+USL-79はlinearのid
+
 ## 技術スタック / 構成
 
 **アーキテクチャ（確定・2層サイドカー）**: UI層＝SwiftUI+AVKit のネイティブMacアプリ。処理層＝Pythonバックエンドを Swift が裏でプロセス起動し、ローカルHTTP等で連携する。
@@ -37,6 +45,51 @@ backend・・・codex
 - 動作環境: macOS / Apple Silicon、統合メモリ64GB前提（Whisper+翻訳LLM+VOICEVOX を同時常駐）。
 - 現状リポジトリは `docs/requirements.md` のみ。**ビルド/テストコマンドは未確立**（コード未着手）。
 - 詳細仕様・採用根拠・確定値は `docs/requirements.md`（v0.6・確定版）が一次情報源。
+
+## コード設計（アーキテクチャ・確定）
+
+両層とも **「画面/ルータ → ロジック → 外部I/Oをprotocolで隔離」** の同じ思想。フルClean Architecture（UseCase全クラス化）は4画面＋直線パイプラインに過剰なため、**Clean寄りのレイヤード（＝ヘキサゴナル軽量版）** を採用する。
+
+### Frontend（SwiftUI / macOS）— MVVM + Repository（薄め）
+
+状態は `@Observable` ベースの ViewModel が **Repository 経由**で取得。View は描画とユーザー操作通知のみ。境界は **protocol** で切る（テスト・モック用）。DI は `init` 注入 or `@Environment`。
+
+```
+Reverb/ (Swift)
+├── App/                 AppShell, ナビゲーション
+├── Features/
+│   ├── Library/         LibraryView + LibraryViewModel
+│   ├── Processing/      ProcessingView + ViewModel（進捗ポーリング/SSE）
+│   ├── Player/          PlayerView + ViewModel
+│   └── Settings/        SettingsView + ViewModel
+├── Core/
+│   ├── API/             BackendClient（HTTP/SSE）, SidecarLauncher
+│   ├── Repository/      JobRepository, ModelRepository（protocol＋impl）
+│   └── Models/          DTO（Codable, API契約と1:1）
+└── Components/          共通部品（StageProgressList 等）
+```
+
+### Backend（Python サイドカー）— FastAPI + レイヤード
+
+`FastAPI + Uvicorn + Pydantic`。内部は **router → service → adapter**。Pydantic schema を API契約の単一情報源とし、FastAPI の OpenAPI 出力で Swift 側 DTO とのズレを検出する。
+
+```
+backend/
+├── main.py              サイドカー起動・ハンドシェイク（127.0.0.1＋一時ポート）
+├── api/                 FastAPI router（/health /models /jobs ... 01-architecture と1:1）
+├── schemas/             Pydantic（API DTO＝契約の単一情報源）
+├── services/            JobService, PipelineRunner（ステージ統括 extract→…→mix）
+├── pipeline/            各ステージ実装（1ステージ＝1モジュール）
+├── adapters/            外部エンジンラッパ ★ここが肝
+│   ├── ffmpeg.py
+│   ├── whisper_mlx.py
+│   ├── ollama.py        モデル名は引数＝設定値（ハードコード禁止・ルール5,6）
+│   └── voicevox.py      話者IDも設定値
+└── core/                config, errors, job store（永続化・再開 / 09-data-model）
+```
+
+- **adapters層が最重要**: 外部エンジンを差し替え可能な境界に隔離 → ルール5（翻訳モデル切替）・6（タグ非ハードコード）・11（依存固定）を構造で担保。
+- service は adapter の **protocol（`Protocol`/ABC）** に依存させ、テスト時はモックに差し替える。
 
 ## 用語・前提
 
