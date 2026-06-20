@@ -41,7 +41,7 @@ public struct AppShell: View {
     private var content: some View {
         switch model.selection {
         case .library:
-            LibraryView(jobRepository: model.jobRepository, modelRepository: model.modelRepository)
+            LibraryView(model: model)
         case .processing:
             ProcessingView(jobRepository: model.jobRepository)
         case .settings:

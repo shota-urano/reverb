@@ -97,6 +97,57 @@ import Foundation
         )
         model.open(running)
         #expect(model.selection == .processing)
+        #expect(model.activeJobId == "j2")
+    }
+
+    // MARK: - プロジェクト台帳・ジョブ作成（USL-77）
+
+    @Test func didCreateJobAddsProjectAndNavigates() {
+        let model = AppModel(launcher: MockSidecarLauncher())
+        model.didCreateJob(
+            CreateJobResponse(jobId: "j1", projectId: "p1", status: .queued),
+            title: "lecture",
+            sourcePath: "/Movies/lecture.mp4"
+        )
+
+        #expect(model.projects.count == 1)
+        #expect(model.projects.first?.id == "p1")
+        #expect(model.projects.first?.title == "lecture")
+        #expect(model.activeJobId == "j1")
+        #expect(model.selection == .processing)
+        // サイドバーの最近一覧にも反映され、Finder 用パスを引ける。
+        #expect(model.recentProjects.first?.jobId == "j1")
+        #expect(model.sourcePath(for: "p1") == "/Movies/lecture.mp4")
+    }
+
+    @Test func didCreateJobDeduplicatesByProjectKeepingNewestFirst() {
+        let model = AppModel(launcher: MockSidecarLauncher())
+        model.didCreateJob(CreateJobResponse(jobId: "j1", projectId: "pA", status: .queued), title: "A", sourcePath: "/a.mp4")
+        model.didCreateJob(CreateJobResponse(jobId: "j2", projectId: "pB", status: .queued), title: "B", sourcePath: "/b.mp4")
+        model.didCreateJob(CreateJobResponse(jobId: "j3", projectId: "pA", status: .running), title: "A2", sourcePath: "/a2.mp4")
+
+        #expect(model.projects.count == 2)
+        #expect(model.projects.first?.id == "pA") // 再作成で先頭へ
+        #expect(model.projects.first?.title == "A2")
+        #expect(model.sourcePath(for: "pA") == "/a2.mp4")
+    }
+
+    @Test func openProjectRowRunningNavigatesToProcessingWithJobId() {
+        let model = AppModel(launcher: MockSidecarLauncher())
+        model.didCreateJob(CreateJobResponse(jobId: "j1", projectId: "p1", status: .running), title: "t", sourcePath: "/t.mp4")
+        model.selection = .library // いったん別画面想定
+
+        let row = ProjectRowData(id: "p1", title: "t", duration: 0, sourceLanguage: nil, updatedAt: .init(timeIntervalSince1970: 0), state: .running)
+        model.open(row)
+        #expect(model.selection == .processing)
+        #expect(model.activeJobId == "j1")
+    }
+
+    @Test func openProjectRowDoneNavigatesToLibrary() {
+        let model = AppModel(launcher: MockSidecarLauncher())
+        let row = ProjectRowData(id: "pX", title: "完了", duration: 10, sourceLanguage: "英語", updatedAt: .init(timeIntervalSince1970: 0), state: .done)
+        model.open(row)
+        #expect(model.selection == .library) // 完了 → プレーヤー（Library 配下 / USL-79）
     }
 }
 
