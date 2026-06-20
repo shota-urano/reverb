@@ -60,6 +60,12 @@ class BackendConfig:
         validate_loopback_host("REVERB_HOST", self.host)
         validate_loopback_url("REVERB_OLLAMA_BASE_URL", self.ollama_base_url)
         validate_loopback_url("REVERB_VOICEVOX_BASE_URL", self.voicevox_base_url)
+        if self.extract_sample_rate <= 0:
+            raise ValueError("REVERB_EXTRACT_SAMPLE_RATE must be greater than 0")
+        if self.extract_channels <= 0:
+            raise ValueError("REVERB_EXTRACT_CHANNELS must be greater than 0")
+        if not self.extract_codec:
+            raise ValueError("REVERB_EXTRACT_CODEC must not be empty")
 
     def with_projects_dir(self, projects_dir: Path) -> "BackendConfig":
         return BackendConfig(

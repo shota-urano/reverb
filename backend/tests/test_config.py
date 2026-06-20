@@ -37,6 +37,15 @@ def test_backend_config_rejects_non_loopback_engine_url() -> None:
         dataclasses.replace(BackendConfig(), host="0.0.0.0")
 
 
+def test_backend_config_rejects_invalid_extract_audio_settings() -> None:
+    with pytest.raises(ValueError):
+        BackendConfig(extract_sample_rate=0)
+    with pytest.raises(ValueError):
+        BackendConfig(extract_channels=-1)
+    with pytest.raises(ValueError):
+        BackendConfig(extract_codec="")
+
+
 def test_with_projects_dir_preserves_extract_config(tmp_path) -> None:
     config = dataclasses.replace(
         BackendConfig(),
