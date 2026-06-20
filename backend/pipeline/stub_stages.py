@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import List
 
+from core.artifacts import write_subtitles, write_transcript, write_translation
 from pipeline.stage import PipelineContext, Stage
+from schemas.artifacts import Subtitles, Transcript, Translation
 from schemas.enums import StageName
 
 
@@ -14,30 +16,32 @@ class StubStage(Stage):
     def run(self, context: PipelineContext) -> str:
         target = context.project_dir / self.artifact
         target.parent.mkdir(parents=True, exist_ok=True)
-        if target.suffix == ".json":
-            target.write_text(self._json_payload(context), encoding="utf-8")
+        if self.name == StageName.transcribe:
+            write_transcript(
+                context.project_dir,
+                Transcript(
+                    engine=context.config.default_stt_engine,
+                    model=context.job.settings.stt.model,
+                    language=None,
+                    duration=0.0,
+                    segments=[],
+                ),
+            )
+        elif self.name == StageName.translate:
+            write_translation(
+                context.project_dir,
+                Translation(
+                    model=context.job.settings.translate.model,
+                    sourceLanguage=None,
+                    targetLanguage="ja",
+                    segments=[],
+                ),
+            )
+        elif self.name == StageName.subtitle:
+            write_subtitles(context.project_dir, Subtitles(cues=[]))
         else:
             target.write_bytes(b"")
         return self.artifact
-
-    def _json_payload(self, context: PipelineContext) -> str:
-        if self.name == StageName.subtitle:
-            return '{"version":1,"cues":[]}\n'
-        if self.name == StageName.transcribe:
-            return (
-                '{"version":1,"engine":"mlx-whisper","model":'
-                f'"{context.job.settings.stt.model}","language":null,'
-                '"duration":0.0,"segments":[]}\n'
-            )
-        if self.name == StageName.translate:
-            return (
-                '{"version":1,"model":'
-                f'"{context.job.settings.translate.model}","sourceLanguage":null,'
-                '"targetLanguage":"ja","segments":[]}\n'
-            )
-        if self.name == StageName.extract:
-            return '{"version":1}\n'
-        return "{}\n"
 
 
 def build_stub_stages() -> List[Stage]:
@@ -46,6 +50,6 @@ def build_stub_stages() -> List[Stage]:
         StubStage(StageName.transcribe, "transcript.json"),
         StubStage(StageName.translate, "translation.json"),
         StubStage(StageName.subtitle, "subtitles.json"),
-        StubStage(StageName.tts, "tts/manifest.json"),
+        StubStage(StageName.tts, "tts/cue_0000.wav"),
         StubStage(StageName.mix, "voiceover.wav"),
     ]

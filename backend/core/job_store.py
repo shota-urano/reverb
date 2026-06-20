@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -14,6 +15,16 @@ from core.serialization import model_to_dict
 from schemas.enums import STAGE_ORDER, JobState, StageName, StageState
 from schemas.jobs import JobResult, JobStatus, StageProgress
 from schemas.settings import JobSettings
+
+
+STAGE_ARTIFACT_PATHS = {
+    StageName.extract: ["audio.wav"],
+    StageName.transcribe: ["transcript.json"],
+    StageName.translate: ["translation.json"],
+    StageName.subtitle: ["subtitles.json"],
+    StageName.tts: ["tts"],
+    StageName.mix: ["voiceover.wav"],
+}
 
 
 @dataclass
@@ -206,3 +217,86 @@ class JobStore:
     def all(self) -> List[JobRecord]:
         with self._lock:
             return list(self._jobs.values())
+
+
+def invalidate_downstream_stages(
+    store: JobStore,
+    job_id: str,
+    video_path: str,
+    settings: JobSettings,
+) -> List[StageName]:
+    invalidated: List[StageName] = []
+
+    def apply(record: JobRecord) -> None:
+        nonlocal invalidated
+        earliest = _earliest_affected_stage(record, video_path, settings)
+        record.video_path = video_path
+        record.settings = settings
+        if earliest is None:
+            return
+
+        invalidated = _downstream_stages(earliest)
+        for stage_name in invalidated:
+            stage = record.stages[stage_name]
+            _remove_stage_artifacts(record.project_dir, stage_name, stage.artifact)
+            stage.artifact = None
+            if stage.status not in (StageState.pending, StageState.failed):
+                stage.status = StageState.pending
+                stage.progress = 0.0
+        if record.current_stage in invalidated:
+            record.current_stage = None
+        if record.error and record.error.stage in {stage.value for stage in invalidated}:
+            record.error = None
+        if record.status in (JobState.done, JobState.failed, JobState.canceled):
+            record.status = JobState.queued
+
+    store.mutate(job_id, apply)
+    return invalidated
+
+
+def _earliest_affected_stage(
+    record: JobRecord,
+    video_path: str,
+    settings: JobSettings,
+) -> Optional[StageName]:
+    if record.video_path != video_path:
+        return StageName.extract
+
+    old_settings = model_to_dict(record.settings, by_alias=True)
+    new_settings = model_to_dict(settings, by_alias=True)
+    checks = [
+        ("stt", StageName.transcribe),
+        ("translate", StageName.translate),
+        ("subtitle", StageName.subtitle),
+        ("tts", StageName.tts),
+        ("mix", StageName.mix),
+    ]
+    for key, stage_name in checks:
+        if old_settings.get(key) != new_settings.get(key):
+            return stage_name
+    return None
+
+
+def _downstream_stages(stage_name: StageName) -> List[StageName]:
+    start = STAGE_ORDER.index(stage_name)
+    return STAGE_ORDER[start:]
+
+
+def _remove_stage_artifacts(
+    project_dir: Path,
+    stage_name: StageName,
+    recorded_artifact: Optional[str],
+) -> None:
+    paths = [project_dir / path for path in STAGE_ARTIFACT_PATHS[stage_name]]
+    if recorded_artifact:
+        paths.append(project_dir / recorded_artifact)
+
+    seen = set()
+    for path in paths:
+        if path in seen:
+            continue
+        seen.add(path)
+        if path.is_dir():
+            shutil.rmtree(path)
+        elif path.exists():
+            path.unlink()

@@ -22,6 +22,9 @@ class BackendConfig:
 
     # 導入時に最新タグ確認 (verify latest tag at setup time)。
     # モデル名は設定値としてのみ扱い、処理には引数で渡す。
+    default_stt_engine: str = field(
+        default_factory=lambda: os.getenv("REVERB_STT_ENGINE", "mlx-whisper")
+    )
     default_stt_model: str = field(
         default_factory=lambda: os.getenv("REVERB_STT_MODEL", "large-v3")
     )
@@ -57,6 +60,7 @@ class BackendConfig:
             ollama_base_url=self.ollama_base_url,
             voicevox_base_url=self.voicevox_base_url,
             dependency_timeout_seconds=self.dependency_timeout_seconds,
+            default_stt_engine=self.default_stt_engine,
             default_stt_model=self.default_stt_model,
             default_translate_model=self.default_translate_model,
             default_speaker_id=self.default_speaker_id,
