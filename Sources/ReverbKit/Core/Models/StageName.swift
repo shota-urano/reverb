@@ -23,6 +23,18 @@ public enum StageName: String, Codable, Sendable, CaseIterable, Identifiable {
         case .mix: return "ミックス"
         }
     }
+
+    /// 現在工程の短い説明（処理中画面 / screens.md §2「現在の工程名と短い説明」）。
+    public var caption: String {
+        switch self {
+        case .extract: return "動画から音声を取り出しています"
+        case .transcribe: return "音声を文字に起こしています"
+        case .translate: return "日本語に翻訳しています"
+        case .subtitle: return "字幕を整えています"
+        case .tts: return "日本語の音声を合成しています"
+        case .mix: return "吹き替えと元音声をミックスしています"
+        }
+    }
 }
 
 /// ジョブ全体の状態（01-architecture §4.2）。

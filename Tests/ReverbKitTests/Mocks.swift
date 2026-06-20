@@ -90,6 +90,50 @@ actor BlockingJobRepository: JobRepository {
     }
 }
 
+/// 処理中画面（USL-78）の観測検証用 JobRepository。
+///
+/// `job(id:)` は与えたスナップショット列を先頭から1つずつ返し（最後の1件は据え置き）、
+/// `events(id:)` は与えたイベント列を流して終端する。cancel/job の呼び出し回数を記録する。
+final class ScriptedJobRepository: JobRepository, @unchecked Sendable {
+    private let lock = NSLock()
+    private var snapshots: [JobStatus]
+    private let scriptedEvents: [JobEvent]
+    private var _cancelCount = 0
+    private var _jobCallCount = 0
+
+    var cancelCount: Int { lock.withLock { _cancelCount } }
+    var jobCallCount: Int { lock.withLock { _jobCallCount } }
+
+    init(snapshots: [JobStatus], events: [JobEvent] = []) {
+        self.snapshots = snapshots
+        self.scriptedEvents = events
+    }
+
+    func createJob(videoPath: String, settings: JobSettings?) async throws -> CreateJobResponse {
+        CreateJobResponse(jobId: "j_scripted", projectId: "p_scripted", status: .queued)
+    }
+
+    func job(id: String) async throws -> JobStatus {
+        try lock.withLock {
+            _jobCallCount += 1
+            if snapshots.count > 1 { return snapshots.removeFirst() }
+            guard let last = snapshots.first else { throw BackendError.invalidResponse }
+            return last
+        }
+    }
+
+    func cancel(id: String) async throws { lock.withLock { _cancelCount += 1 } }
+    func result(id: String) async throws -> JobResult { throw BackendError.invalidResponse }
+
+    func events(id: String) -> AsyncThrowingStream<JobEvent, Error> {
+        let events = scriptedEvents
+        return AsyncThrowingStream { continuation in
+            for event in events { continuation.yield(event) }
+            continuation.finish()
+        }
+    }
+}
+
 /// createJob に渡された videoPath を安全に記録する小箱。
 final class CallRecorder: @unchecked Sendable {
     private let lock = NSLock()

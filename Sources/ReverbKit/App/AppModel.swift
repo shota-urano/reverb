@@ -43,6 +43,13 @@ public final class AppModel {
     /// 処理中／プレーヤー画面が対象とするジョブ。行選択・新規作成で設定し、各画面（USL-78/79）が消費する。
     public private(set) var activeJobId: String?
 
+    /// アクティブジョブのプロジェクト概要（タイトル・再生時間・言語ペア）。処理中画面のヘッダ表示に使う。
+    /// 一覧取得 API は未定義のため、セッション内台帳から引く（永続化は 09-data-model の backend スコープ）。
+    public var activeProject: ProjectRowData? {
+        guard let activeJobId else { return nil }
+        return records.first { $0.jobId == activeJobId }?.row
+    }
+
     /// 依存エンジンの可用性（LocalOnlyStatus の表示判定に使う）。
     public private(set) var health: HealthResponse?
 
@@ -174,6 +181,37 @@ public final class AppModel {
     /// 行の「…」→ Finder 表示に使う元動画パス（セッション内で作成したもののみ取得できる）。
     public func sourcePath(for projectId: String) -> String? {
         records.first { $0.row.id == projectId }?.sourcePath
+    }
+
+    /// 処理中画面からライブラリへ戻る導線（キャンセル・失敗後 / screens.md §2）。
+    public func returnToLibrary() {
+        selection = .library
+    }
+
+    /// 完了したジョブをプレーヤーで開く（screens.md §2 done）。
+    /// プレーヤーはライブラリ配下（USL-79）のため、現状はライブラリへ遷移して再生導線に委ねる。
+    public func openCompletedJob() {
+        selection = .library
+    }
+
+    /// ジョブ進行に応じて台帳の状態を更新する（処理中画面が完了/失敗/キャンセルを反映）。
+    /// 一覧・最近のプロジェクトの状態表示を実態に合わせる。タイトル・元動画パスは保持する。
+    /// - Parameter duration: 完了時に判明する再生時間（成果物由来）。nil なら既存値を保つ。
+    public func updateJobState(jobId: String, to state: JobState, duration: Double? = nil) {
+        guard let index = records.firstIndex(where: { $0.jobId == jobId }) else { return }
+        let old = records[index].row
+        records[index].row = ProjectRowData(
+            id: old.id,
+            title: old.title,
+            detail: old.detail,
+            duration: duration ?? old.duration,
+            sourceLanguage: old.sourceLanguage,
+            targetLanguage: old.targetLanguage,
+            updatedAt: Date(),
+            state: state,
+            sourceMissing: old.sourceMissing,
+            thumbnailPath: old.thumbnailPath
+        )
     }
 
     // MARK: - Private
