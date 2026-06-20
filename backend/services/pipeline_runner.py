@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import time
 from typing import Callable, Iterable
 
 from core.config import BackendConfig
-from core.errors import ErrorBody
+from core.errors import ErrorBody, StageError
 from core.job_store import JobRecord, JobStore
 from pipeline.stage import PipelineContext, Stage
 from schemas.enums import JobState, StageState
@@ -48,7 +49,23 @@ class PipelineRunner:
                 stage_record.progress = 0.0
                 self.store.save(record)
                 self.notify(record)
+                last_saved_progress = stage_record.progress
+                last_saved_at = time.monotonic()
 
+                def report_progress(progress: float) -> None:
+                    nonlocal last_saved_at, last_saved_progress
+                    stage_record.progress = max(0.0, min(progress, 1.0))
+                    now = time.monotonic()
+                    if (
+                        abs(stage_record.progress - last_saved_progress) >= 0.01
+                        or now - last_saved_at >= 0.5
+                    ):
+                        last_saved_progress = stage_record.progress
+                        last_saved_at = now
+                        self.store.save(record)
+                        self.notify(record)
+
+                context.report_progress = report_progress
                 artifact = stage.run(context)
 
                 # ステージ完了直後にキャンセル要求があれば done で上書きしない。
@@ -67,7 +84,19 @@ class PipelineRunner:
                 return
             record.current_stage = None
             record.status = JobState.done
-            record.duration = 0.0
+            self.store.save(record)
+            self.notify(record)
+        except StageError as exc:
+            stage_name = record.current_stage.value if record.current_stage else None
+            if record.current_stage:
+                record.stages[record.current_stage].status = StageState.failed
+            record.status = JobState.failed
+            record.error = ErrorBody(
+                code=exc.code,
+                stage=stage_name,
+                message=exc.message,
+                retryable=exc.retryable,
+            )
             self.store.save(record)
             self.notify(record)
         except Exception as exc:

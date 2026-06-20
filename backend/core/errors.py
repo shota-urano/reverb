@@ -36,6 +36,14 @@ class BackendError(Exception):
         self.retryable = retryable
 
 
+class StageError(Exception):
+    def __init__(self, code: str, message: str = "", retryable: bool = False) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.retryable = retryable
+
+
 def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(BackendError)
     async def handle_backend_error(_: Request, exc: BackendError) -> JSONResponse:

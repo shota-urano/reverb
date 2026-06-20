@@ -35,3 +35,23 @@ def test_backend_config_rejects_non_loopback_engine_url() -> None:
         dataclasses.replace(BackendConfig(), ollama_base_url="http://cloud.example.com:11434")
     with pytest.raises(ValueError):
         dataclasses.replace(BackendConfig(), host="0.0.0.0")
+
+
+def test_with_projects_dir_preserves_extract_config(tmp_path) -> None:
+    config = dataclasses.replace(
+        BackendConfig(),
+        ffmpeg_bin="custom-ffmpeg",
+        ffprobe_bin="custom-ffprobe",
+        extract_sample_rate=22050,
+        extract_channels=2,
+        extract_codec="pcm_f32le",
+    )
+
+    copied = config.with_projects_dir(tmp_path)
+
+    assert copied.projects_dir == tmp_path
+    assert copied.ffmpeg_bin == "custom-ffmpeg"
+    assert copied.ffprobe_bin == "custom-ffprobe"
+    assert copied.extract_sample_rate == 22050
+    assert copied.extract_channels == 2
+    assert copied.extract_codec == "pcm_f32le"

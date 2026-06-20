@@ -19,6 +19,15 @@ class BackendConfig:
         default_factory=lambda: os.getenv("REVERB_VOICEVOX_BASE_URL", "http://127.0.0.1:50021")
     )
     dependency_timeout_seconds: float = 0.5
+    ffmpeg_bin: str = field(default_factory=lambda: os.getenv("REVERB_FFMPEG_BIN", "ffmpeg"))
+    ffprobe_bin: str = field(default_factory=lambda: os.getenv("REVERB_FFPROBE_BIN", "ffprobe"))
+    extract_sample_rate: int = field(
+        default_factory=lambda: _env_int("REVERB_EXTRACT_SAMPLE_RATE", 16000)
+    )
+    extract_channels: int = field(default_factory=lambda: _env_int("REVERB_EXTRACT_CHANNELS", 1))
+    extract_codec: str = field(
+        default_factory=lambda: os.getenv("REVERB_EXTRACT_CODEC", "pcm_s16le")
+    )
 
     # 導入時に最新タグ確認 (verify latest tag at setup time)。
     # モデル名は設定値としてのみ扱い、処理には引数で渡す。
@@ -60,6 +69,11 @@ class BackendConfig:
             ollama_base_url=self.ollama_base_url,
             voicevox_base_url=self.voicevox_base_url,
             dependency_timeout_seconds=self.dependency_timeout_seconds,
+            ffmpeg_bin=self.ffmpeg_bin,
+            ffprobe_bin=self.ffprobe_bin,
+            extract_sample_rate=self.extract_sample_rate,
+            extract_channels=self.extract_channels,
+            extract_codec=self.extract_codec,
             default_stt_engine=self.default_stt_engine,
             default_stt_model=self.default_stt_model,
             default_translate_model=self.default_translate_model,
