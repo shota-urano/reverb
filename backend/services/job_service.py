@@ -10,6 +10,7 @@ from core.job_store import JobRecord, JobStore
 from pipeline.extract import AudioExtractor, ExtractStage
 from pipeline.stage import Stage
 from pipeline.stub_stages import StubStage
+from pipeline.subtitle import SubtitleStage
 from pipeline.transcribe import Transcriber, TranscribeStage
 from pipeline.translate import Translator, TranslateStage
 from schemas.enums import JobState, StageState
@@ -113,7 +114,7 @@ def build_pipeline_stages(
         ExtractStage(ffmpeg),
         TranscribeStage(whisper),
         TranslateStage(translator),
-        StubStage(StageName.subtitle, "subtitles.json"),
+        SubtitleStage(),
         StubStage(StageName.tts, "tts/cue_0000.wav"),
         StubStage(StageName.mix, "voiceover.wav"),
     ]
