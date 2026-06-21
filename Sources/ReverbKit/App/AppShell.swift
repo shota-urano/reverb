@@ -49,7 +49,7 @@ public struct AppShell: View {
             case .processing:
                 ProcessingView(model: model)
             case .settings:
-                SettingsView(modelRepository: model.modelRepository)
+                SettingsView(model: model)
             }
         }
     }

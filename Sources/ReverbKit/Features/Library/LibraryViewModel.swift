@@ -17,15 +17,24 @@ public final class LibraryViewModel {
     public private(set) var lastAttemptedPath: String?
 
     private let jobRepository: (any JobRepository)?
+    /// 設定画面（USL-80）が保存した既定設定の読込元。未保存なら nil を返し、バックエンド既定を使う。
+    private let settingsStore: any SettingsStore
 
-    /// - Parameter jobRepository: ジョブ作成境界。接続前は nil（このとき作成は失敗として扱う）。
-    public init(jobRepository: (any JobRepository)?) {
+    /// - Parameters:
+    ///   - jobRepository: ジョブ作成境界。接続前は nil（このとき作成は失敗として扱う）。
+    ///   - settingsStore: 既定設定の保存域（設定画面で保存した値を `POST /jobs` に渡す）。
+    public init(
+        jobRepository: (any JobRepository)?,
+        settingsStore: any SettingsStore = UserDefaultsSettingsStore()
+    ) {
         self.jobRepository = jobRepository
+        self.settingsStore = settingsStore
     }
 
     /// 受け取った動画を検証して `POST /jobs` を投げる。
     /// 成功時はレスポンスを返し（呼び出し側が遷移）、失敗時は nil＋errorMessage を設定する。
-    /// - Note: `settings` は渡さず、バックエンド既定（確定初期値）を使う。明示設定は設定画面（USL-80）。
+    /// - Note: 設定画面（USL-80）で保存した既定設定があればそれを渡す。未保存なら nil で
+    ///   バックエンド既定（確定初期値）に委ねる。
     public func submit(videoURL: URL) async -> CreateJobResponse? {
         guard !isCreating else { return nil } // 作成中の二重投入を防ぐ（ドロップ領域は作成中も入力を受け得る）。
         guard Self.isSupported(videoURL) else {
@@ -44,7 +53,10 @@ public final class LibraryViewModel {
         defer { isCreating = false }
 
         do {
-            let response = try await jobRepository.createJob(videoPath: videoURL.path, settings: nil)
+            let response = try await jobRepository.createJob(
+                videoPath: videoURL.path,
+                settings: settingsStore.load()
+            )
             lastAttemptedPath = nil
             errorMessage = nil
             return response
