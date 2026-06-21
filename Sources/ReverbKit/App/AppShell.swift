@@ -39,13 +39,18 @@ public struct AppShell: View {
 
     @ViewBuilder
     private var content: some View {
-        switch model.selection {
-        case .library:
-            LibraryView(model: model)
-        case .processing:
-            ProcessingView(model: model)
-        case .settings:
-            SettingsView(modelRepository: model.modelRepository)
+        // 完了プロジェクトを開いている間はプレーヤーを最前面に出す（library 配下 / screens.md §3）。
+        if model.playerJobId != nil {
+            PlayerView(model: model)
+        } else {
+            switch model.selection {
+            case .library:
+                LibraryView(model: model)
+            case .processing:
+                ProcessingView(model: model)
+            case .settings:
+                SettingsView(modelRepository: model.modelRepository)
+            }
         }
     }
 }
