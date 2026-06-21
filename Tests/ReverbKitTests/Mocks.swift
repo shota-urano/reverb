@@ -35,16 +35,54 @@ struct MockBackendClient: BackendClient {
     func shutdown() async {}
 }
 
-/// 設定可能なテスト用 JobRepository。createJob の成否と渡された videoPath を制御・記録する。
+/// 設定可能なテスト用 ModelRepository。health/models/speakers を個別に成功値・失敗で制御する。
+/// 設定画面（USL-80）の読込・依存ゲート・既定反映の検証に使う。
+struct StubModelRepository: ModelRepository {
+    var healthResponse = HealthResponse(
+        status: "ok",
+        version: "0.6.0",
+        dependencies: DependencyStatus(ffmpeg: true, mlxWhisper: true, ollama: true, voicevox: true)
+    )
+    var modelsResponse = ModelsResponse(defaultModel: "qwen3:30b", models: ["qwen3:30b", "gemma3:27b"])
+    var speakersResponse = SpeakersResponse(
+        defaultSpeaker: Speaker(speakerId: 13, name: "青山龍星", styleId: 0),
+        speakers: [
+            Speaker(speakerId: 13, name: "青山龍星", styleId: 0),
+            Speaker(speakerId: 11, name: "玄野武宏", styleId: 0),
+        ]
+    )
+    /// 非 nil なら該当呼び出しが失敗する。
+    var healthError: BackendError?
+    var modelsError: BackendError?
+    var speakersError: BackendError?
+
+    func health() async throws -> HealthResponse {
+        if let healthError { throw healthError }
+        return healthResponse
+    }
+    func translationModels() async throws -> ModelsResponse {
+        if let modelsError { throw modelsError }
+        return modelsResponse
+    }
+    func speakers() async throws -> SpeakersResponse {
+        if let speakersError { throw speakersError }
+        return speakersResponse
+    }
+}
+
+/// 設定可能なテスト用 JobRepository。createJob の成否と渡された videoPath / settings を制御・記録する。
 struct StubJobRepository: JobRepository {
     var createResponse = CreateJobResponse(jobId: "j_stub", projectId: "p_stub", status: .queued)
     /// 非 nil なら createJob はこのエラーで失敗する。
     var createError: BackendError?
     /// createJob に渡された videoPath の記録。
     var recorder = CallRecorder()
+    /// createJob に渡された settings の記録（USL-80 の既定設定受け渡し検証用）。
+    var settingsRecorder = SettingsRecorder()
 
     func createJob(videoPath: String, settings: JobSettings?) async throws -> CreateJobResponse {
         recorder.record(videoPath)
+        settingsRecorder.record(settings)
         if let createError { throw createError }
         return createResponse
     }
@@ -175,6 +213,29 @@ final class CallRecorder: @unchecked Sendable {
     private var storage: [String] = []
     var paths: [String] { lock.withLock { storage } }
     func record(_ path: String) { lock.withLock { storage.append(path) } }
+}
+
+/// createJob に渡された settings を安全に記録する小箱。
+final class SettingsRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [JobSettings?] = []
+    var values: [JobSettings?] { lock.withLock { storage } }
+    var last: JobSettings? { lock.withLock { storage.last ?? nil } }
+    func record(_ settings: JobSettings?) { lock.withLock { storage.append(settings) } }
+}
+
+/// テスト用のインメモリ SettingsStore。永続化せず保持値を返す。
+final class InMemorySettingsStore: SettingsStore, @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: JobSettings?
+
+    init(initial: JobSettings? = nil) {
+        self.stored = initial
+    }
+
+    func load() -> JobSettings? { lock.withLock { stored } }
+    func save(_ settings: JobSettings) { lock.withLock { stored = settings } }
+    func clear() { lock.withLock { stored = nil } }
 }
 
 /// テスト用のサイドカー起動。プロセスを起動せず固定ハンドシェイクを返す。

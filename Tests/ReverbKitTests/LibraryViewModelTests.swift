@@ -22,6 +22,28 @@ import Foundation
         #expect(repo.recorder.paths == ["/Movies/lecture.mp4"])
     }
 
+    @Test func submitPassesSavedSettingsToRepository() async {
+        // 設定画面（USL-80）で保存した既定設定を POST /jobs に渡す。
+        let saved = JobSettings(
+            stt: STTSettings(model: "turbo", language: nil),
+            translate: TranslateSettings(model: "gemma3:27b"),
+            tts: TTSSettings(speakerId: 11, styleId: 0),
+            mix: MixSettings(jaVolume: 0.9, originalVolume: 0.1)
+        )
+        let repo = StubJobRepository()
+        let vm = LibraryViewModel(jobRepository: repo, settingsStore: InMemorySettingsStore(initial: saved))
+        _ = await vm.submit(videoURL: URL(fileURLWithPath: "/Movies/lecture.mp4"))
+        #expect(repo.settingsRecorder.last == saved)
+    }
+
+    @Test func submitPassesNilSettingsWhenNoneSaved() async {
+        // 未保存ならバックエンド既定に委ねる（settings: nil）。
+        let repo = StubJobRepository()
+        let vm = LibraryViewModel(jobRepository: repo, settingsStore: InMemorySettingsStore())
+        _ = await vm.submit(videoURL: URL(fileURLWithPath: "/Movies/lecture.mp4"))
+        #expect(repo.settingsRecorder.last == nil)
+    }
+
     @Test func submitRejectsNonMP4WithoutCallingRepository() async {
         let repo = StubJobRepository()
         let vm = LibraryViewModel(jobRepository: repo)
