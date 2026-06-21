@@ -127,7 +127,9 @@ public struct SettingsView: View {
             settingRow(
                 label: "翻訳モデル",
                 disabled: !viewModel.translateAvailable,
-                disabledNote: "Ollama が未接続のため変更できません。"
+                disabledNote: viewModel.health?.dependencies.ollama == false
+                    ? "Ollama が未接続のため変更できません。"
+                    : "翻訳モデル一覧を取得できませんでした。再読込してください。"
             ) {
                 if viewModel.translationModels.isEmpty {
                     unavailablePlaceholder("翻訳モデル")
@@ -154,7 +156,9 @@ public struct SettingsView: View {
             settingRow(
                 label: "話者",
                 disabled: !viewModel.ttsAvailable,
-                disabledNote: "VOICEVOX が未接続のため変更できません。"
+                disabledNote: viewModel.health?.dependencies.voicevox == false
+                    ? "VOICEVOX が未接続のため変更できません。"
+                    : "話者一覧を取得できませんでした。再読込してください。"
             ) {
                 if viewModel.speakers.isEmpty {
                     unavailablePlaceholder("話者")

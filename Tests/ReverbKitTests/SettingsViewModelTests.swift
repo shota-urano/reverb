@@ -136,6 +136,29 @@ import Foundation
         #expect(vm.didSave == false)
     }
 
+    @Test func settersRejectValuesNotInCurrentLists() async {
+        // 一覧に無いモデル/話者は採用しない（不正設定の保存・送信を防ぐ・setSTTModel と同じ不変条件）。
+        let vm = makeVM()
+        await vm.load()
+
+        vm.setTranslateModel("missing-model")
+        #expect(vm.translateModel == "qwen3:30b") // 既定のまま
+
+        vm.setSpeaker(id: "999-0")
+        #expect(vm.selectedSpeakerId == "13-0") // 既定のまま
+
+        vm.setSTTModel("tiny")
+        #expect(vm.sttModel == STTCatalog.defaultModel)
+
+        // 妥当な値・空（未選択）は受け付ける。
+        vm.setTranslateModel("gemma3:27b")
+        #expect(vm.translateModel == "gemma3:27b")
+        vm.setSpeaker(id: "11-0")
+        #expect(vm.selectedSpeakerId == "11-0")
+        vm.setTranslateModel("")
+        #expect(vm.translateModel == "")
+    }
+
     @Test func setVolumeClampsToUnitRange() async {
         let vm = makeVM()
         await vm.load()

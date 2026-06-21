@@ -141,11 +141,15 @@ public final class SettingsViewModel {
     }
 
     public func setTranslateModel(_ model: String) {
+        // 一覧に無い値は採用しない（不正な設定が保存・送信されるのを防ぐ）。空は「未選択」として許可。
+        guard model.isEmpty || translationModels.contains(model) else { return }
         translateModel = model
         didSave = false
     }
 
     public func setSpeaker(id: String) {
+        // 一覧に無い話者は採用しない（setSTTModel と同じ不変条件）。空は「未選択」として許可。
+        guard id.isEmpty || speakers.contains(where: { $0.id == id }) else { return }
         selectedSpeakerId = id
         didSave = false
     }
