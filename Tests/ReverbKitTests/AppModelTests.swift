@@ -149,6 +149,62 @@ import Foundation
         model.open(row)
         #expect(model.selection == .library) // 完了 → プレーヤー（Library 配下 / USL-79）
     }
+
+    // MARK: - プレーヤー遷移（USL-79）
+
+    @Test func openDoneProjectRowOpensPlayer() {
+        let model = AppModel(launcher: MockSidecarLauncher())
+        model.didCreateJob(CreateJobResponse(jobId: "jD", projectId: "pD", status: .done), title: "完了", sourcePath: "/d.mp4")
+        let row = ProjectRowData(id: "pD", title: "完了", duration: 10, sourceLanguage: nil, updatedAt: .init(timeIntervalSince1970: 0), state: .done)
+
+        model.open(row)
+        #expect(model.playerJobId == "jD") // library 配下でプレーヤーを最前面に
+        #expect(model.activeJobId == "jD")
+        #expect(model.selection == .library)
+    }
+
+    @Test func openDoneRecentProjectOpensPlayer() {
+        let model = AppModel(launcher: MockSidecarLauncher())
+        let done = RecentProject(id: "pR", title: "完了", updatedAt: .init(timeIntervalSince1970: 0), state: .done, jobId: "jR")
+        model.open(done)
+        #expect(model.playerJobId == "jR")
+    }
+
+    @Test func openRunningProjectDoesNotOpenPlayer() {
+        let model = AppModel(launcher: MockSidecarLauncher())
+        let running = RecentProject(id: "pr", title: "処理中", updatedAt: .init(timeIntervalSince1970: 0), state: .running, jobId: "jr")
+        model.open(running)
+        #expect(model.playerJobId == nil)
+        #expect(model.selection == .processing)
+    }
+
+    @Test func navigatingAwayClosesPlayer() {
+        let model = AppModel(launcher: MockSidecarLauncher())
+        let done = RecentProject(id: "pR", title: "完了", updatedAt: .init(timeIntervalSince1970: 0), state: .done, jobId: "jR")
+        model.open(done)
+        #expect(model.playerJobId == "jR")
+
+        model.selection = .settings // サイドバーで他画面へ → プレーヤーを閉じる
+        #expect(model.playerJobId == nil)
+    }
+
+    @Test func closePlayerReturnsToLibraryList() {
+        let model = AppModel(launcher: MockSidecarLauncher())
+        let done = RecentProject(id: "pR", title: "完了", updatedAt: .init(timeIntervalSince1970: 0), state: .done, jobId: "jR")
+        model.open(done)
+        model.closePlayer()
+        #expect(model.playerJobId == nil)
+        #expect(model.selection == .library) // 一覧へ戻る
+    }
+
+    @Test func openCompletedJobOpensPlayerForActiveJob() {
+        let model = AppModel(launcher: MockSidecarLauncher())
+        model.didCreateJob(CreateJobResponse(jobId: "jA", projectId: "pA", status: .running), title: "t", sourcePath: "/t.mp4")
+        // activeJobId = jA。処理完了後に視聴導線から開く。
+        model.openCompletedJob()
+        #expect(model.playerJobId == "jA")
+        #expect(model.selection == .library)
+    }
 }
 
 /// clientFactory（@Sendable）に渡る URL を安全に受け取るための小箱。

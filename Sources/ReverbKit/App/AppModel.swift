@@ -19,7 +19,14 @@ public final class AppModel {
     // MARK: - 公開状態
 
     public var connection: Connection = .idle
-    public var selection: SidebarSection = .library
+    /// サイドバーの主選択。プレーヤー以外の画面へ切替えたらプレーヤーを閉じる（player は library 配下）。
+    public var selection: SidebarSection = .library {
+        didSet { playerJobId = nil }
+    }
+
+    /// 再生中（プレーヤー表示）のジョブ。非 nil の間、library ペインはプレーヤーを最前面に出す（screens.md §3）。
+    /// 完了プロジェクトを開いたときに設定し、`closePlayer()`・他画面への遷移で解除する。
+    public private(set) var playerJobId: String?
 
     /// ライブラリが管理するプロジェクト一覧（design-system ProjectRow 用 / screens.md §1）。
     /// 一覧取得 API は未定義のため、セッション内で `POST /jobs` したものをローカル保持する
@@ -149,16 +156,26 @@ public final class AppModel {
     // MARK: - ナビゲーション
 
     /// 最近のプロジェクト行を選択したときの遷移（screens.md 共通ナビ）。
+    /// 完了はプレーヤー（library 配下）、それ以外は処理中画面へ。
     public func open(_ project: RecentProject) {
         activeJobId = project.jobId
-        selection = project.destination
+        selection = project.destination // .done は .library。didSet で playerJobId を一旦解除。
+        if project.state == .done {
+            playerJobId = project.jobId // selection 設定後に立てる（プレーヤーを最前面に）。
+        }
     }
 
     /// ライブラリ一覧の行を開く（screens.md §1）。完了はプレーヤー（Library 配下 / USL-79）、
     /// それ以外は処理中画面へ。jobId は台帳から引いて activeJobId に載せる。
     public func open(_ project: ProjectRowData) {
-        activeJobId = records.first { $0.row.id == project.id }?.jobId
-        selection = (project.state == .done) ? .library : .processing
+        let jobId = records.first { $0.row.id == project.id }?.jobId
+        activeJobId = jobId
+        if project.state == .done {
+            selection = .library
+            playerJobId = jobId
+        } else {
+            selection = .processing
+        }
     }
 
     /// 新規ジョブ作成後、一覧へ追加し処理中画面へ遷移する（screens.md §1 / 08 §3）。
@@ -188,10 +205,15 @@ public final class AppModel {
         selection = .library
     }
 
-    /// 完了したジョブをプレーヤーで開く（screens.md §2 done）。
-    /// プレーヤーはライブラリ配下（USL-79）のため、現状はライブラリへ遷移して再生導線に委ねる。
+    /// 完了したジョブをプレーヤーで開く（screens.md §2 done → §3）。library 配下でプレーヤーを最前面に出す。
     public func openCompletedJob() {
         selection = .library
+        playerJobId = activeJobId
+    }
+
+    /// プレーヤーを閉じてライブラリ一覧へ戻る（プレーヤーの「ライブラリへ」導線 / screens.md §3）。
+    public func closePlayer() {
+        playerJobId = nil
     }
 
     /// ジョブ進行に応じて台帳の状態を更新する（処理中画面が完了/失敗/キャンセルを反映）。

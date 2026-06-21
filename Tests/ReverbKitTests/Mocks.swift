@@ -134,6 +134,41 @@ final class ScriptedJobRepository: JobRepository, @unchecked Sendable {
     }
 }
 
+/// プレーヤー（USL-79）の成果物取得検証用 JobRepository。
+/// `result(id:)` は設定した JobResult を返すか、設定したエラーで失敗する。
+struct PlayerStubJobRepository: JobRepository {
+    var jobResult = JobResult(
+        projectId: "p_play", videoPath: "/v.mp4", voiceoverPath: "/vo.wav",
+        subtitlesPath: "/s.json", duration: 120.0
+    )
+    /// 非 nil なら result(id:) はこのエラーで失敗する。
+    var resultError: BackendError?
+
+    func createJob(videoPath: String, settings: JobSettings?) async throws -> CreateJobResponse {
+        CreateJobResponse(jobId: "j_play", projectId: "p_play", status: .done)
+    }
+    func job(id: String) async throws -> JobStatus { throw BackendError.invalidResponse }
+    func cancel(id: String) async throws {}
+    func result(id: String) async throws -> JobResult {
+        if let resultError { throw resultError }
+        return jobResult
+    }
+    func events(id: String) -> AsyncThrowingStream<JobEvent, Error> {
+        AsyncThrowingStream { $0.finish() }
+    }
+}
+
+/// テスト用 SubtitleRepository。設定した SubtitleTrack を返すか、エラーで失敗する。
+struct StubSubtitleRepository: SubtitleRepository {
+    var track = SubtitleTrack(version: 1, cues: [])
+    var loadError: Error?
+
+    func load(path: String) async throws -> SubtitleTrack {
+        if let loadError { throw loadError }
+        return track
+    }
+}
+
 /// createJob に渡された videoPath を安全に記録する小箱。
 final class CallRecorder: @unchecked Sendable {
     private let lock = NSLock()
