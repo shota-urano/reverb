@@ -127,6 +127,49 @@ def test_translate_all_empty_segments_writes_empty_segments_without_error(tmp_pa
     assert translation.segments == []
 
 
+def test_translate_symbol_only_segment_passthrough_without_ollama(tmp_path: Path) -> None:
+    translator = FakeTranslator()
+
+    record, _ = _run_pipeline(
+        tmp_path,
+        translator,
+        segments=[
+            TranscriptSegment(id=0, start=0.0, end=1.0, text="."),
+        ],
+    )
+
+    translation = read_translation(record.project_dir)
+    assert record.status == JobState.done
+    assert [(segment.id, segment.source, segment.target) for segment in translation.segments] == [
+        (0, ".", ".")
+    ]
+    assert translator.events == []
+
+
+def test_translate_omits_empty_segments_when_mixed_with_translated_segments(
+    tmp_path: Path,
+) -> None:
+    translator = FakeTranslator(responses=[["こんにちは。"]])
+
+    record, _ = _run_pipeline(
+        tmp_path,
+        translator,
+        segments=[
+            TranscriptSegment(id=0, start=0.0, end=1.0, text=""),
+            TranscriptSegment(id=1, start=1.0, end=2.0, text="Hello."),
+            TranscriptSegment(id=2, start=2.0, end=3.0, text="   "),
+            TranscriptSegment(id=3, start=3.0, end=4.0, text="."),
+        ],
+    )
+
+    translation = read_translation(record.project_dir)
+    assert record.status == JobState.done
+    assert [segment.id for segment in translation.segments] == [1, 3]
+    assert [segment.source for segment in translation.segments] == ["Hello.", "."]
+    assert [segment.target for segment in translation.segments] == ["こんにちは。", "."]
+    assert [segment["id"] for segment in translator.calls[0]["segments"]] == [1]
+
+
 def test_translate_ollama_unavailable_error_code_is_preserved(tmp_path: Path) -> None:
     record, _ = _run_pipeline(
         tmp_path,
@@ -172,6 +215,29 @@ def test_translate_misalign_after_retry_fails_with_translate_misalign(tmp_path: 
     assert record.error.code == "TRANSLATE_MISALIGN"
     assert record.error.retryable is True
     assert record.stages[StageName.translate].status == StageState.failed
+
+
+def test_translate_empty_target_for_text_segment_retries_then_fails(tmp_path: Path) -> None:
+    translator = FakeTranslator(responses=[[""], ["   "]])
+
+    record, _ = _run_pipeline(
+        tmp_path,
+        translator,
+        segments=[
+            TranscriptSegment(id=0, start=0.0, end=1.0, text="Hello."),
+        ],
+        config_overrides={
+            "translate_max_retries": 1,
+            "translate_retry_initial_wait": 0.0,
+        },
+    )
+
+    assert record.status == JobState.failed
+    assert record.error is not None
+    assert record.error.code == "TRANSLATE_INCOMPLETE"
+    assert record.error.retryable is True
+    assert record.stages[StageName.translate].status == StageState.failed
+    assert len(translator.calls) == 2
 
 
 def test_translate_retries_retryable_stage_error_then_succeeds(tmp_path: Path) -> None:

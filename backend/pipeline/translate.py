@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Optional, Protocol
 
@@ -37,25 +38,18 @@ class TranslateStage(Stage):
         transcript = read_transcript(context.project_dir)
         model = context.job.settings.translate.model or context.config.default_translate_model
 
-        if all(not segment.text.strip() for segment in transcript.segments):
-            write_translation(
-                context.project_dir,
-                Translation(
-                    model=model,
-                    sourceLanguage=transcript.language,
-                    targetLanguage="ja",
-                    segments=[],
-                ),
-            )
-            context.report_progress(1.0)
-            return str(TRANSLATION_PATH)
+        non_empty_segments = [segment for segment in transcript.segments if segment.text.strip()]
+        translated_by_id: dict[int, str] = {}
+        for segment in non_empty_segments:
+            if not _needs_translation(segment.text):
+                translated_by_id[segment.id] = segment.text
 
-        translated_by_id: dict[int, str] = {
-            segment.id: "" for segment in transcript.segments if not segment.text.strip()
-        }
-        translatable_segments = [segment for segment in transcript.segments if segment.text.strip()]
+        translatable_segments = [
+            segment for segment in non_empty_segments if _needs_translation(segment.text)
+        ]
         chunks = list(_chunks(translatable_segments, context.config.translate_chunk_size))
-        self._warm_up(context, model)
+        if chunks:
+            self._warm_up(context, model)
 
         for index, chunk in enumerate(chunks):
             translated = self._translate_chunk(
@@ -64,6 +58,8 @@ class TranslateStage(Stage):
             for segment, target in zip(chunk, translated):
                 translated_by_id[segment.id] = target
             context.report_progress((index + 1) / len(chunks))
+        if not chunks:
+            context.report_progress(1.0)
 
         translation_segments = [
             TranslationSegment(
@@ -73,7 +69,7 @@ class TranslateStage(Stage):
                 source=segment.text,
                 target=translated_by_id[segment.id],
             )
-            for segment in transcript.segments
+            for segment in non_empty_segments
         ]
         write_translation(
             context.project_dir,
@@ -145,6 +141,10 @@ def _sleep_before_retry(initial_wait: float, attempt: int) -> None:
         time.sleep(wait_seconds)
 
 
+def _needs_translation(text: str) -> bool:
+    return re.search(r"\w", text, re.UNICODE) is not None
+
+
 def _translation_incomplete_error(
     chunk: list[TranscriptSegment],
     translated: list[str],
@@ -156,7 +156,8 @@ def _translation_incomplete_error(
             retryable=True,
         )
     has_empty_target = any(
-        segment.text.strip() and not target.strip() for segment, target in zip(chunk, translated)
+        _needs_translation(segment.text) and not target.strip()
+        for segment, target in zip(chunk, translated)
     )
     if has_empty_target:
         return StageError(
@@ -181,7 +182,7 @@ def _context_segments(
     return [
         _segment_payload(segment, context_only=True)
         for segment in prior[-max(0, context_window) :]
-        if segment.text.strip()
+        if _needs_translation(segment.text)
     ]
 
 
