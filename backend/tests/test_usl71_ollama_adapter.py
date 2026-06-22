@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import urllib.error
 import urllib.request
 
@@ -8,6 +9,101 @@ import pytest
 
 from adapters.ollama import OllamaAdapter
 from core.errors import StageError
+
+
+def test_translate_extracts_text_from_translation_objects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = _adapter_with_translation_content(
+        monkeypatch,
+        [{"id": 0, "text": "Hello"}, {"id": 1, "text": "World"}],
+    )
+
+    translated = adapter.translate(
+        _translation_segments(),
+        "qwen3",
+        "en",
+        "system prompt",
+        2,
+    )
+
+    assert translated == ["Hello", "World"]
+
+
+def test_translate_orders_translation_objects_by_input_segment_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = _adapter_with_translation_content(
+        monkeypatch,
+        [{"id": 1, "text": "World"}, {"id": 0, "text": "Hello"}],
+    )
+
+    translated = adapter.translate(
+        _translation_segments(),
+        "qwen3",
+        "en",
+        "system prompt",
+        2,
+    )
+
+    assert translated == ["Hello", "World"]
+
+
+def test_translate_returns_empty_string_for_non_dict_element(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = _adapter_with_translation_content(
+        monkeypatch,
+        [{"id": 0, "text": "Hello"}, "not a dict"],
+    )
+
+    translated = adapter.translate(
+        _translation_segments(),
+        "qwen3",
+        "en",
+        "system prompt",
+        2,
+    )
+
+    assert translated == ["Hello", ""]
+
+
+def test_translate_returns_empty_string_for_missing_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = _adapter_with_translation_content(
+        monkeypatch,
+        [{"id": 0, "text": "Hello"}, {"id": 1}],
+    )
+
+    translated = adapter.translate(
+        _translation_segments(),
+        "qwen3",
+        "en",
+        "system prompt",
+        2,
+    )
+
+    assert translated == ["Hello", ""]
+
+
+def test_translate_falls_back_to_positional_order_when_ids_are_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = _adapter_with_translation_content(
+        monkeypatch,
+        [{"text": "Hello"}, {"text": "World"}],
+    )
+
+    translated = adapter.translate(
+        _translation_segments(),
+        "qwen3",
+        "en",
+        "system prompt",
+        2,
+    )
+
+    assert translated == ["Hello", "World"]
 
 
 def test_post_json_404_not_found_raises_model_missing(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -76,3 +172,23 @@ def _raise_error(exc: BaseException):
         raise exc
 
     return raise_error
+
+
+def _adapter_with_translation_content(
+    monkeypatch: pytest.MonkeyPatch,
+    translation: list[object],
+) -> OllamaAdapter:
+    adapter = OllamaAdapter("http://127.0.0.1:11434", timeout_seconds=1)
+
+    def post_json(*_: object) -> dict:
+        return {"message": {"content": json.dumps(translation)}}
+
+    monkeypatch.setattr(adapter, "_post_json", post_json)
+    return adapter
+
+
+def _translation_segments() -> list[dict[str, object]]:
+    return [
+        {"id": 0, "text": "Hello"},
+        {"id": 1, "text": "World"},
+    ]
