@@ -44,7 +44,7 @@ class BackendConfig:
     stt_model_repos: Dict[str, str] = field(default_factory=lambda: _stt_model_repos())
     # NOTE: confirm latest model tag at install time. モデル名は設定値としてのみ扱う。
     default_translate_model: str = field(
-        default_factory=lambda: os.getenv("REVERB_TRANSLATE_MODEL", "qwen3:30b")
+        default_factory=lambda: os.getenv("REVERB_TRANSLATE_MODEL", "qwen3:30b-a3b")
     )
     translate_timeout_seconds: float = field(
         default_factory=lambda: _env_float("REVERB_TRANSLATE_TIMEOUT_SECONDS", 120.0)
