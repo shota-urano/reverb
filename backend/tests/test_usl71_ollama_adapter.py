@@ -106,6 +106,25 @@ def test_translate_falls_back_to_positional_order_when_ids_are_missing(
     assert translated == ["Hello", "World"]
 
 
+def test_translate_returns_placeholders_when_response_ids_do_not_match_input_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = _adapter_with_translation_content(
+        monkeypatch,
+        [{"id": 10, "text": "Hello"}, {"id": 11, "text": "World"}],
+    )
+
+    translated = adapter.translate(
+        _translation_segments(),
+        "qwen3",
+        "en",
+        "system prompt",
+        2,
+    )
+
+    assert translated == ["", ""]
+
+
 def test_post_json_404_not_found_raises_model_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         urllib.request,

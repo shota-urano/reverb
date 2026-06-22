@@ -169,8 +169,11 @@ def _translation_texts(
             break
         by_id[item_id] = item
 
-    if can_map_by_id and all(input_id in by_id for input_id in input_ids):
-        return [_translation_text(by_id[input_id]) for input_id in input_ids]
+    if can_map_by_id:
+        return [
+            _translation_text(by_id[input_id]) if input_id in by_id else ""
+            for input_id in input_ids
+        ]
 
     return [
         _translation_text(parsed[index]) if index < len(parsed) else ""
