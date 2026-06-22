@@ -14,7 +14,7 @@ from schemas.enums import StageName
 
 logger = logging.getLogger(__name__)
 
-_MIN_SPEED_SCALE = 0.8
+_MIN_SPEED_SCALE = 1.0
 _MAX_SPEED_SCALE = 1.3
 _SPEED_SCALE_EPSILON = 0.000001
 _FATAL_STAGE_ERROR_CODES = {"VOICEVOX_UNAVAILABLE", "SPEAKER_INVALID"}
@@ -61,16 +61,36 @@ class MixStage(Stage):
             context.config.default_style_id,
         )
         next_available_start = 0.0
+        compressed = 0
+        equal_speed = 0
+        skipped = 0
 
         for index, cue in enumerate(subtitles.cues):
             path = get_cue_wav_path(context.project_dir, cue.id)
-            duration = self._prepare_cue(context, cue, path, speaker_id, style_id)
+            duration, speed_scale, skipped_target = self._prepare_cue(
+                context, cue, path, speaker_id, style_id
+            )
+            if skipped_target:
+                skipped += 1
+            elif speed_scale is not None:
+                if speed_scale > 1.0:
+                    compressed += 1
+                elif abs(speed_scale - 1.0) <= _SPEED_SCALE_EPSILON:
+                    equal_speed += 1
             if duration is not None:
                 placement_start = max(cue.start, next_available_start)
                 cue_inputs.append((path, placement_start))
                 next_available_start = placement_start + duration
             context.report_progress((index + 1) / total_cues)
 
+        logger.info(
+            "speed_scale distribution: total=%d compressed(>1.0)=%d "
+            "equal_speed(=1.0)=%d skipped(target<=0)=%d",
+            total_cues,
+            compressed,
+            equal_speed,
+            skipped,
+        )
         self._mix(context, cue_inputs, _output_duration(context, subtitles.cues, cue_inputs))
         return str(VOICEOVER_PATH)
 
@@ -81,11 +101,11 @@ class MixStage(Stage):
         path: Path,
         speaker_id: int,
         style_id: int,
-    ) -> Optional[float]:
+    ) -> tuple[Optional[float], Optional[float], bool]:
         duration = _wav_duration_seconds(path)
         if duration is None:
             _warn_missing_cue(cue.id, path)
-            return None
+            return None, None, False
 
         target = cue.end - cue.start
         if target <= 0:
@@ -93,28 +113,32 @@ class MixStage(Stage):
                 "Skipping TTS cue with non-positive target duration.",
                 extra={"cue_id": cue.id, "start": cue.start, "end": cue.end},
             )
-            return None
+            return None, None, True
 
         speed_scale = _clamp(duration / target, _MIN_SPEED_SCALE, _MAX_SPEED_SCALE)
+        logger.info(
+            "cue speed_scale",
+            extra={"cue_id": cue.id, "speed_scale": speed_scale},
+        )
         if abs(speed_scale - 1.0) <= _SPEED_SCALE_EPSILON:
-            return duration
+            return duration, speed_scale, False
 
         text = _cue_text(cue.lines)
         if not text:
-            return duration
+            return duration, speed_scale, False
 
         resynthesized = self._resynthesize_cue(
             context, text, speaker_id, style_id, speed_scale, cue.id
         )
         if resynthesized is None:
-            return None
+            return None, speed_scale, False
 
         path.write_bytes(resynthesized)
         resynthesized_duration = _wav_duration_seconds(path)
         if resynthesized_duration is None:
             _warn_missing_cue(cue.id, path)
-            return None
-        return resynthesized_duration
+            return None, speed_scale, False
+        return resynthesized_duration, speed_scale, False
 
     def _resynthesize_cue(
         self,

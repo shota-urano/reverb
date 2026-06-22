@@ -126,7 +126,7 @@ def test_mix_clamps_speed_scale_resynthesizes_and_passes_configured_volumes(
     tmp_path: Path,
 ) -> None:
     mixer = FakeMixer()
-    voicevox = FakeVoicevox(responses=[_wav_bytes(1.3), _wav_bytes(1.6)])
+    voicevox = FakeVoicevox(responses=[_wav_bytes(1.3)])
 
     record, _ = _run_pipeline(
         tmp_path,
@@ -135,7 +135,7 @@ def test_mix_clamps_speed_scale_resynthesizes_and_passes_configured_volumes(
         duration=8.0,
         cues=[
             SubtitleCue(id=0, start=0.0, end=1.0, lines=["長い音声。"], segmentIds=[0]),
-            SubtitleCue(id=1, start=3.0, end=5.0, lines=["短い音声。"], segmentIds=[1]),
+            SubtitleCue(id=1, start=0.5, end=2.5, lines=["短い音声。"], segmentIds=[1]),
         ],
         cue_durations={0: 2.0, 1: 1.0},
         config=BackendConfig(ja_volume=0.7, original_volume=0.12).with_projects_dir(tmp_path),
@@ -149,19 +149,43 @@ def test_mix_clamps_speed_scale_resynthesizes_and_passes_configured_volumes(
             "style_id": record.settings.tts.styleId,
             "speed_scale": 1.3,
         },
-        {
-            "text": "短い音声。",
-            "speaker_id": record.settings.tts.speakerId,
-            "style_id": record.settings.tts.styleId,
-            "speed_scale": 0.8,
-        },
     ]
     assert mixer.calls[0]["cue_inputs"] == [
         (get_cue_wav_path(record.project_dir, 0), 0.0),
-        (get_cue_wav_path(record.project_dir, 1), 3.0),
+        (get_cue_wav_path(record.project_dir, 1), 1.3),
     ]
     assert mixer.calls[0]["ja_volume"] == 0.7
     assert mixer.calls[0]["original_volume"] == 0.12
+
+
+def test_mix_keeps_shorter_than_target_cues_at_equal_speed_without_resynthesizing(
+    tmp_path: Path,
+    caplog,
+) -> None:
+    mixer = FakeMixer()
+    voicevox = FakeVoicevox()
+
+    with caplog.at_level(logging.INFO):
+        record, _ = _run_pipeline(
+            tmp_path,
+            mixer,
+            voicevox,
+            duration=4.0,
+            cues=[
+                SubtitleCue(id=0, start=0.0, end=2.0, lines=["短い音声。"], segmentIds=[0])
+            ],
+            cue_durations={0: 1.0},
+        )
+
+    assert record.status == JobState.done
+    assert voicevox.calls == []
+    assert mixer.calls[0]["cue_inputs"] == [(get_cue_wav_path(record.project_dir, 0), 0.0)]
+    assert any(
+        log_record.message == "cue speed_scale"
+        and log_record.cue_id == 0
+        and log_record.speed_scale == 1.0
+        for log_record in caplog.records
+    )
 
 
 def test_mix_missing_cue_warns_and_continues(tmp_path: Path, caplog) -> None:
