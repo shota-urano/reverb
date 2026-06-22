@@ -112,6 +112,8 @@ class FFmpegAdapter:
             "-progress",
             "pipe:1",
             "-y",
+            "-f",
+            out_path.suffix.lstrip("."),
             str(tmp_path),
         ]
 
