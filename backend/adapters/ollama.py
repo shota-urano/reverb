@@ -70,7 +70,7 @@ class OllamaAdapter:
         if not isinstance(content, str):
             return []
         parsed = _parse_translation_array(content)
-        return [str(item).replace("\n", " ").strip() for item in parsed]
+        return _translation_texts(parsed, input_segments)
 
     def _get_json(self, path: str) -> dict:
         request = urllib.request.Request(
@@ -149,6 +149,45 @@ def _parse_translation_array(content: str) -> list[object]:
     if not isinstance(parsed, list):
         return []
     return parsed
+
+
+def _translation_texts(
+    parsed: list[object],
+    input_segments: list[dict[str, object]],
+) -> list[str]:
+    input_ids = [segment.get("id") for segment in input_segments]
+    by_id: dict[object, dict[str, object]] = {}
+    can_map_by_id = bool(input_ids)
+
+    for item in parsed:
+        if not isinstance(item, dict) or "id" not in item:
+            can_map_by_id = False
+            break
+        item_id = item["id"]
+        if item_id in by_id:
+            can_map_by_id = False
+            break
+        by_id[item_id] = item
+
+    if can_map_by_id:
+        return [
+            _translation_text(by_id[input_id]) if input_id in by_id else ""
+            for input_id in input_ids
+        ]
+
+    return [
+        _translation_text(parsed[index]) if index < len(parsed) else ""
+        for index in range(len(input_segments))
+    ]
+
+
+def _translation_text(item: object) -> str:
+    if not isinstance(item, dict):
+        return ""
+    text = item.get("text")
+    if not isinstance(text, str):
+        return ""
+    return text.replace("\n", " ").strip()
 
 
 def _read_error_body(exc: urllib.error.HTTPError) -> str:
