@@ -90,6 +90,44 @@ def test_extract_skips_unparseable_progress_lines(
     assert progress_values == [0.0, 0.5, 1.0]
 
 
+@pytest.mark.parametrize("extension", [".wav", ".flac"])
+def test_extract_sets_muxer_from_final_suffix_before_tmp_output_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, extension: str
+) -> None:
+    monkeypatch.setattr("adapters.ffmpeg.shutil.which", lambda _: "/mock/ffmpeg")
+    captured_command: list[str] = []
+
+    class FakeProcess:
+        def __init__(self, command: list[str], **_: object) -> None:
+            captured_command[:] = command
+            self.stdout = io.StringIO("")
+            self.returncode = None
+            Path(command[-1]).write_bytes(b"audio")
+            self.killed = False
+
+        def wait(self) -> int:
+            self.returncode = 0
+            return 0
+
+        def kill(self) -> None:
+            self.killed = True
+
+    monkeypatch.setattr("adapters.ffmpeg.subprocess.Popen", FakeProcess)
+
+    out_path = tmp_path / f"audio{extension}"
+    FFmpegAdapter().extract(
+        "/Users/me/a.mp4",
+        out_path,
+        {"duration": 0.0, "channels": 1, "sample_rate": 16000, "codec": "pcm_s16le"},
+        lambda _: None,
+    )
+
+    fmt = out_path.suffix.lstrip(".")
+    assert captured_command[-1] == str(out_path.with_name(f"{out_path.name}.tmp"))
+    assert captured_command[-3:-1] == ["-f", fmt]
+    assert captured_command[-2] == fmt
+
+
 def test_voiceover_filter_graph_disables_amix_normalization() -> None:
     filter_graph = _voiceover_filter_graph([(Path("ja.wav"), 1.0)], 10.0, 1.0, 0.08)
 
