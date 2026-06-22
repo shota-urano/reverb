@@ -111,13 +111,10 @@ class TranslateStage(Stage):
                     context.config.translate_system_prompt,
                     context.config.translate_context_window,
                 )
-                if len(translated) == len(chunk):
+                incomplete_error = _translation_incomplete_error(chunk, translated)
+                if incomplete_error is None:
                     return translated
-                last_error = StageError(
-                    "TRANSLATE_MISALIGN",
-                    "Translated segment count did not match input segment count.",
-                    retryable=True,
-                )
+                last_error = incomplete_error
             except StageError as exc:
                 if not exc.retryable:
                     raise
@@ -146,6 +143,28 @@ def _sleep_before_retry(initial_wait: float, attempt: int) -> None:
     wait_seconds = initial_wait * (2**attempt)
     if wait_seconds > 0:
         time.sleep(wait_seconds)
+
+
+def _translation_incomplete_error(
+    chunk: list[TranscriptSegment],
+    translated: list[str],
+) -> Optional[StageError]:
+    if len(translated) != len(chunk):
+        return StageError(
+            "TRANSLATE_MISALIGN",
+            "Translated segment count did not match input segment count.",
+            retryable=True,
+        )
+    has_empty_target = any(
+        segment.text.strip() and not target.strip() for segment, target in zip(chunk, translated)
+    )
+    if has_empty_target:
+        return StageError(
+            "TRANSLATE_INCOMPLETE",
+            "Translation returned an empty target for a non-empty source segment.",
+            retryable=True,
+        )
+    return None
 
 
 def _chunks(segments: list[TranscriptSegment], chunk_size: int) -> list[list[TranscriptSegment]]:

@@ -155,17 +155,49 @@ def _parse_translation_array(content: str) -> list[object]:
     try:
         parsed = json.loads(content)
     except json.JSONDecodeError:
-        start = content.find("[")
-        end = content.rfind("]")
-        if start < 0 or end <= start:
-            return []
-        try:
-            parsed = json.loads(content[start : end + 1])
-        except json.JSONDecodeError:
-            return []
+        parsed = _extract_json_array(content)
     if not isinstance(parsed, list):
         return []
     return parsed
+
+
+def _extract_json_array(content: str) -> object:
+    for start, char in enumerate(content):
+        if char != "[":
+            continue
+        candidate = _balanced_json_array_candidate(content, start)
+        if candidate is None:
+            continue
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+    return []
+
+
+def _balanced_json_array_candidate(content: str, start: int) -> Optional[str]:
+    depth = 0
+    in_string = False
+    escaped = False
+    for index in range(start, len(content)):
+        char = content[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "[":
+            depth += 1
+        elif char == "]":
+            depth -= 1
+            if depth == 0:
+                return content[start : index + 1]
+    return None
 
 
 def _translation_texts(
@@ -174,19 +206,27 @@ def _translation_texts(
 ) -> list[str]:
     input_ids = [segment.get("id") for segment in input_segments]
     by_id: dict[object, dict[str, object]] = {}
+    has_id_items = False
     can_map_by_id = bool(input_ids)
 
     for item in parsed:
         if not isinstance(item, dict) or "id" not in item:
             can_map_by_id = False
-            break
+            continue
+        has_id_items = True
         item_id = item["id"]
         if item_id in by_id:
             can_map_by_id = False
-            break
+            continue
         by_id[item_id] = item
 
     if can_map_by_id:
+        return [
+            _translation_text(by_id[input_id]) if input_id in by_id else ""
+            for input_id in input_ids
+        ]
+
+    if has_id_items:
         return [
             _translation_text(by_id[input_id]) if input_id in by_id else ""
             for input_id in input_ids
@@ -199,6 +239,8 @@ def _translation_texts(
 
 
 def _translation_text(item: object) -> str:
+    if isinstance(item, str):
+        return item.replace("\n", " ").strip()
     if not isinstance(item, dict):
         return ""
     text = item.get("text")
