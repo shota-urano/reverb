@@ -46,8 +46,19 @@ class BackendConfig:
     default_translate_model: str = field(
         default_factory=lambda: os.getenv("REVERB_TRANSLATE_MODEL", "qwen3:30b-a3b")
     )
+    # qwen3:30b-a3b は実測で約53秒/8セグメント。コールドロード込みの
+    # 初回チャンクは300〜600秒程度を見込むため、既定を長尺動画向けにする。
     translate_timeout_seconds: float = field(
-        default_factory=lambda: _env_float("REVERB_TRANSLATE_TIMEOUT_SECONDS", 120.0)
+        default_factory=lambda: _env_float("REVERB_TRANSLATE_TIMEOUT_SECONDS", 600.0)
+    )
+    ollama_keep_alive: str = field(
+        default_factory=lambda: os.getenv("REVERB_OLLAMA_KEEP_ALIVE", "3600s")
+    )
+    translate_max_retries: int = field(
+        default_factory=lambda: _env_int("REVERB_TRANSLATE_MAX_RETRIES", 3)
+    )
+    translate_retry_initial_wait: float = field(
+        default_factory=lambda: _env_float("REVERB_TRANSLATE_RETRY_INITIAL_WAIT", 5.0)
     )
     translate_chunk_size: int = field(
         default_factory=lambda: _env_int("REVERB_TRANSLATE_CHUNK_SIZE", 10)
@@ -99,6 +110,14 @@ class BackendConfig:
             raise ValueError("REVERB_EXTRACT_CODEC must not be empty")
         if self.translate_timeout_seconds <= 0:
             raise ValueError("REVERB_TRANSLATE_TIMEOUT_SECONDS must be greater than 0")
+        if not self.ollama_keep_alive:
+            raise ValueError("REVERB_OLLAMA_KEEP_ALIVE must not be empty")
+        if self.translate_max_retries < 0:
+            raise ValueError("REVERB_TRANSLATE_MAX_RETRIES must be greater than or equal to 0")
+        if self.translate_retry_initial_wait < 0:
+            raise ValueError(
+                "REVERB_TRANSLATE_RETRY_INITIAL_WAIT must be greater than or equal to 0"
+            )
         if self.translate_chunk_size <= 0:
             raise ValueError("REVERB_TRANSLATE_CHUNK_SIZE must be greater than 0")
         if self.translate_context_window < 0:
@@ -128,6 +147,9 @@ class BackendConfig:
             stt_model_repos=self.stt_model_repos,
             default_translate_model=self.default_translate_model,
             translate_timeout_seconds=self.translate_timeout_seconds,
+            ollama_keep_alive=self.ollama_keep_alive,
+            translate_max_retries=self.translate_max_retries,
+            translate_retry_initial_wait=self.translate_retry_initial_wait,
             translate_chunk_size=self.translate_chunk_size,
             translate_context_window=self.translate_context_window,
             translate_system_prompt=self.translate_system_prompt,

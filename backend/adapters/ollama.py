@@ -15,12 +15,14 @@ class OllamaAdapter:
         base_url: str,
         timeout_seconds: float,
         translate_timeout_seconds: Optional[float] = None,
+        keep_alive: Optional[str] = None,
     ) -> None:
         # ローカル完結（ルール1）: 翻訳トラフィックを非ローカルへ流さないよう
         # 構築時にループバックのみへ制限する。
         self.base_url = validate_loopback_url("ollama_base_url", base_url)
         self.timeout_seconds = timeout_seconds
         self.translate_timeout_seconds = translate_timeout_seconds or timeout_seconds
+        self.keep_alive = keep_alive
 
     def ping(self) -> bool:
         try:
@@ -64,6 +66,8 @@ class OllamaAdapter:
                 },
             ],
         }
+        if self.keep_alive:
+            payload["keep_alive"] = self.keep_alive
         response = self._post_json("/api/chat", payload, model)
         message = response.get("message", {})
         content = message.get("content") if isinstance(message, dict) else None
@@ -71,6 +75,19 @@ class OllamaAdapter:
             return []
         parsed = _parse_translation_array(content)
         return _translation_texts(parsed, input_segments)
+
+    def warm_up(self, model: str, system_prompt: str) -> None:
+        payload = {
+            "model": model,
+            "stream": False,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": "OK とだけ返してください。"},
+            ],
+        }
+        if self.keep_alive:
+            payload["keep_alive"] = self.keep_alive
+        self._post_json("/api/chat", payload, model)
 
     def _get_json(self, path: str) -> dict:
         request = urllib.request.Request(
