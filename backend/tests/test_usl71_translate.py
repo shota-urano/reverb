@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
+import pytest
+
 from core.artifacts import read_translation, write_transcript
 from core.config import BackendConfig
 from core.errors import StageError
@@ -20,11 +22,21 @@ class FakeTranslator:
         self,
         *,
         responses: Optional[list[list[str]]] = None,
+        errors: Optional[list[StageError]] = None,
         error: Optional[StageError] = None,
+        warm_up_error: Optional[StageError] = None,
     ) -> None:
         self.responses = responses if responses is not None else []
+        self.errors = errors if errors is not None else []
         self.error = error
+        self.warm_up_error = warm_up_error
         self.calls = []
+        self.events = []
+
+    def warm_up(self, model: str, system_prompt: str) -> None:
+        self.events.append("warm_up")
+        if self.warm_up_error:
+            raise self.warm_up_error
 
     def translate(
         self,
@@ -34,6 +46,7 @@ class FakeTranslator:
         system_prompt: str,
         context_window: int,
     ) -> list[str]:
+        self.events.append("translate")
         self.calls.append(
             {
                 "segments": segments,
@@ -43,6 +56,8 @@ class FakeTranslator:
                 "context_window": context_window,
             }
         )
+        if self.errors:
+            raise self.errors.pop(0)
         if self.error:
             raise self.error
         if self.responses:
@@ -116,6 +131,7 @@ def test_translate_ollama_unavailable_error_code_is_preserved(tmp_path: Path) ->
     record, _ = _run_pipeline(
         tmp_path,
         FakeTranslator(error=StageError("OLLAMA_UNAVAILABLE", "Ollama unavailable", True)),
+        config_overrides={"translate_retry_initial_wait": 0.0},
     )
 
     assert record.status == JobState.failed
@@ -145,6 +161,10 @@ def test_translate_misalign_after_retry_fails_with_translate_misalign(tmp_path: 
             TranscriptSegment(id=0, start=0.0, end=1.0, text="First."),
             TranscriptSegment(id=1, start=1.0, end=2.0, text="Second."),
         ],
+        config_overrides={
+            "translate_max_retries": 1,
+            "translate_retry_initial_wait": 0.0,
+        },
     )
 
     assert record.status == JobState.failed
@@ -154,16 +174,86 @@ def test_translate_misalign_after_retry_fails_with_translate_misalign(tmp_path: 
     assert record.stages[StageName.translate].status == StageState.failed
 
 
+def test_translate_retries_retryable_stage_error_then_succeeds(tmp_path: Path) -> None:
+    translator = FakeTranslator(
+        errors=[StageError("OLLAMA_UNAVAILABLE", "timed out", retryable=True)],
+        responses=[["リトライ後に成功。"]],
+    )
+
+    record, _ = _run_pipeline(
+        tmp_path,
+        translator,
+        config_overrides={
+            "translate_max_retries": 3,
+            "translate_retry_initial_wait": 0.0,
+        },
+    )
+
+    translation = read_translation(record.project_dir)
+    assert record.status == JobState.done
+    assert [segment.target for segment in translation.segments] == ["リトライ後に成功。"]
+    assert len(translator.calls) == 2
+
+
+def test_translate_fails_after_retry_limit_is_exceeded(tmp_path: Path) -> None:
+    translator = FakeTranslator(
+        errors=[
+            StageError("OLLAMA_UNAVAILABLE", "timed out", retryable=True),
+            StageError("OLLAMA_UNAVAILABLE", "timed out again", retryable=True),
+            StageError("OLLAMA_UNAVAILABLE", "still timed out", retryable=True),
+        ]
+    )
+
+    record, _ = _run_pipeline(
+        tmp_path,
+        translator,
+        config_overrides={
+            "translate_max_retries": 2,
+            "translate_retry_initial_wait": 0.0,
+        },
+    )
+
+    assert record.status == JobState.failed
+    assert record.error is not None
+    assert record.error.code == "OLLAMA_UNAVAILABLE"
+    assert record.error.retryable is True
+    assert len(translator.calls) == 3
+
+
+def test_translate_warms_up_before_first_chunk_and_continues_after_failure(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    translator = FakeTranslator(
+        responses=[["ウォームアップ失敗後も続行。"]],
+        warm_up_error=StageError("OLLAMA_UNAVAILABLE", "warm-up timeout", retryable=True),
+    )
+
+    record, _ = _run_pipeline(tmp_path, translator, caplog=caplog)
+
+    translation = read_translation(record.project_dir)
+    assert record.status == JobState.done
+    assert [segment.target for segment in translation.segments] == ["ウォームアップ失敗後も続行。"]
+    assert translator.events[:2] == ["warm_up", "translate"]
+    assert "Ollama warm-up failed; continuing with translate stage." in caplog.text
+
+
 def _run_pipeline(
     tmp_path: Path,
     translator: FakeTranslator,
     *,
     segments: Optional[list[TranscriptSegment]] = None,
     chunk_size: int = 10,
+    config_overrides: Optional[dict[str, object]] = None,
+    caplog: Optional[pytest.LogCaptureFixture] = None,
 ) -> tuple[JobRecord, list]:
+    if caplog is not None:
+        caplog.set_level("WARNING", logger="pipeline.translate")
+    overrides = config_overrides or {}
     config = BackendConfig(
         translate_chunk_size=chunk_size,
         translate_context_window=2,
+        **overrides,
     ).with_projects_dir(tmp_path)
     store = JobStore(config.projects_dir)
     record = store.create("/tmp/input.mp4", default_job_settings(config))

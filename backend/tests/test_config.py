@@ -60,6 +60,28 @@ def test_backend_config_uses_env_translate_model(monkeypatch: pytest.MonkeyPatch
     assert BackendConfig().default_translate_model == "custom-local-model:latest"
 
 
+def test_backend_config_uses_long_translate_timeout_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("REVERB_TRANSLATE_TIMEOUT_SECONDS", raising=False)
+
+    assert BackendConfig().translate_timeout_seconds == 600.0
+
+
+def test_backend_config_uses_translate_retry_and_keep_alive_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("REVERB_TRANSLATE_MAX_RETRIES", "4")
+    monkeypatch.setenv("REVERB_TRANSLATE_RETRY_INITIAL_WAIT", "1.5")
+    monkeypatch.setenv("REVERB_OLLAMA_KEEP_ALIVE", "2h")
+
+    config = BackendConfig()
+
+    assert config.translate_max_retries == 4
+    assert config.translate_retry_initial_wait == 1.5
+    assert config.ollama_keep_alive == "2h"
+
+
 def test_with_projects_dir_preserves_extract_config(tmp_path) -> None:
     config = dataclasses.replace(
         BackendConfig(),

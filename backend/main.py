@@ -36,6 +36,7 @@ def create_app(projects_dir: Optional[Path] = None) -> FastAPI:
         config.ollama_base_url,
         config.dependency_timeout_seconds,
         config.translate_timeout_seconds,
+        config.ollama_keep_alive,
     )
     app.state.voicevox = VoicevoxAdapter(
         config.voicevox_base_url,

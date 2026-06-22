@@ -125,6 +125,32 @@ def test_translate_returns_placeholders_when_response_ids_do_not_match_input_ids
     assert translated == ["", ""]
 
 
+def test_translate_includes_keep_alive_in_chat_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_payload = {}
+    adapter = OllamaAdapter(
+        "http://127.0.0.1:11434",
+        timeout_seconds=1,
+        keep_alive="3600s",
+    )
+
+    def post_json(_: str, payload: dict, __: str) -> dict:
+        captured_payload.update(payload)
+        return {"message": {"content": json.dumps([{"id": 0, "text": "Hello"}])}}
+
+    monkeypatch.setattr(adapter, "_post_json", post_json)
+
+    translated = adapter.translate(
+        [{"id": 0, "text": "Hello"}],
+        "qwen3",
+        "en",
+        "system prompt",
+        2,
+    )
+
+    assert translated == ["Hello"]
+    assert captured_payload["keep_alive"] == "3600s"
+
+
 def test_post_json_404_not_found_raises_model_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         urllib.request,
