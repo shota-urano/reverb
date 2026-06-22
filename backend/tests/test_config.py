@@ -46,6 +46,20 @@ def test_backend_config_rejects_invalid_extract_audio_settings() -> None:
         BackendConfig(extract_codec="")
 
 
+def test_backend_config_uses_current_default_translate_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("REVERB_TRANSLATE_MODEL", raising=False)
+
+    assert BackendConfig().default_translate_model == "qwen3:30b-a3b"
+
+
+def test_backend_config_uses_env_translate_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("REVERB_TRANSLATE_MODEL", "custom-local-model:latest")
+
+    assert BackendConfig().default_translate_model == "custom-local-model:latest"
+
+
 def test_with_projects_dir_preserves_extract_config(tmp_path) -> None:
     config = dataclasses.replace(
         BackendConfig(),
