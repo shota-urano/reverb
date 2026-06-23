@@ -8,7 +8,6 @@ import pytest
 
 from adapters.ollama import OllamaAdapter
 from core.config import BackendConfig
-from core.errors import StageError
 from pipeline.translate import TranslateStage
 from schemas.artifacts import TranscriptSegment
 
@@ -122,7 +121,9 @@ def test_translate_chunk_retries_empty_targets_then_returns_success() -> None:
     assert len(translator.calls) == 2
 
 
-def test_translate_chunk_raises_stage_error_after_empty_targets_exhaust_retries() -> None:
+def test_translate_chunk_falls_back_to_source_after_empty_targets_exhaust_retries() -> None:
+    # USL-97: 単発の非空原文に対し、リトライ後も空訳のままなら原文へフォールバックし
+    # 工程を継続する（1セグメントで全体を落とさない）。過半が空の場合のみ失敗させる。
     translator = FakeTranslator(
         responses=[
             ["", "二番目です。"],
@@ -131,17 +132,15 @@ def test_translate_chunk_raises_stage_error_after_empty_targets_exhaust_retries(
     )
     stage = TranslateStage(translator)
 
-    with pytest.raises(StageError) as exc_info:
-        stage._translate_chunk(
-            _context(),
-            _transcript_segments(),
-            _transcript_segments(),
-            "en",
-            "qwen3",
-        )
+    translated = stage._translate_chunk(
+        _context(),
+        _transcript_segments(),
+        _transcript_segments(),
+        "en",
+        "qwen3",
+    )
 
-    assert exc_info.value.code == "TRANSLATE_INCOMPLETE"
-    assert exc_info.value.retryable is True
+    assert translated == ["First.", "二番目です。"]
     assert len(translator.calls) == 2
 
 

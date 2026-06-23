@@ -69,6 +69,9 @@ class BackendConfig:
     translate_retry_initial_wait: float = field(
         default_factory=lambda: _env_float("REVERB_TRANSLATE_RETRY_INITIAL_WAIT", 5.0)
     )
+    translate_fallback_threshold: float = field(
+        default_factory=lambda: _env_float("REVERB_TRANSLATE_FALLBACK_THRESHOLD", 0.5)
+    )
     translate_chunk_size: int = field(
         default_factory=lambda: _env_int("REVERB_TRANSLATE_CHUNK_SIZE", 10)
     )
@@ -142,6 +145,8 @@ class BackendConfig:
             raise ValueError(
                 "REVERB_TRANSLATE_RETRY_INITIAL_WAIT must be greater than or equal to 0"
             )
+        if self.translate_fallback_threshold <= 0 or self.translate_fallback_threshold > 1:
+            raise ValueError("REVERB_TRANSLATE_FALLBACK_THRESHOLD must be in the range (0.0, 1.0]")
         if self.translate_chunk_size <= 0:
             raise ValueError("REVERB_TRANSLATE_CHUNK_SIZE must be greater than 0")
         if self.translate_context_window < 0:
@@ -176,6 +181,7 @@ class BackendConfig:
             ollama_keep_alive=self.ollama_keep_alive,
             translate_max_retries=self.translate_max_retries,
             translate_retry_initial_wait=self.translate_retry_initial_wait,
+            translate_fallback_threshold=self.translate_fallback_threshold,
             translate_chunk_size=self.translate_chunk_size,
             translate_context_window=self.translate_context_window,
             translate_system_prompt=self.translate_system_prompt,
