@@ -68,8 +68,8 @@ public final class SettingsViewModel {
     public var sttAvailable: Bool { health?.dependencies.mlxWhisper ?? false }
     /// 翻訳設定が使えるか（Ollama 接続かつモデルを取得できた）。
     public var translateAvailable: Bool { (health?.dependencies.ollama ?? false) && !translationModels.isEmpty }
-    /// TTS 設定が使えるか（VOICEVOX 接続かつ話者を取得できた）。
-    public var ttsAvailable: Bool { (health?.dependencies.voicevox ?? false) && !speakers.isEmpty }
+    /// TTS 設定が使えるか（TTS エンジン接続かつ話者を取得できた）。
+    public var ttsAvailable: Bool { (health?.dependencies.tts ?? false) && !speakers.isEmpty }
 
     /// 選択中の話者（解決できなければ nil）。
     public var selectedSpeaker: Speaker? {

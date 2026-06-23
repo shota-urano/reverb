@@ -10,11 +10,12 @@ import Foundation
     @Test func decodeHealth() throws {
         let json = """
         {"status":"ok","version":"0.6.0",
-         "dependencies":{"ffmpeg":true,"mlx_whisper":true,"ollama":true,"voicevox":true}}
+         "dependencies":{"ffmpeg":true,"mlx_whisper":true,"ollama":true,"tts":true}}
         """
         let health = try decoder.decode(HealthResponse.self, from: Data(json.utf8))
         #expect(health.version == "0.6.0")
         #expect(health.dependencies.mlxWhisper) // snake_case マッピング確認
+        #expect(health.dependencies.tts)
         #expect(health.dependencies.allAvailable)
     }
 

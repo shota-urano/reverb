@@ -6,7 +6,7 @@ struct MockBackendClient: BackendClient {
     var health: HealthResponse = .init(
         status: "ok",
         version: "0.6.0",
-        dependencies: .init(ffmpeg: true, mlxWhisper: true, ollama: true, voicevox: true)
+        dependencies: .init(ffmpeg: true, mlxWhisper: true, ollama: true, tts: true)
     )
     var models: ModelsResponse = .init(defaultModel: "qwen3:30b", models: ["qwen3:30b"])
     var speakers: SpeakersResponse = .init(
@@ -41,7 +41,7 @@ struct StubModelRepository: ModelRepository {
     var healthResponse = HealthResponse(
         status: "ok",
         version: "0.6.0",
-        dependencies: DependencyStatus(ffmpeg: true, mlxWhisper: true, ollama: true, voicevox: true)
+        dependencies: DependencyStatus(ffmpeg: true, mlxWhisper: true, ollama: true, tts: true)
     )
     var modelsResponse = ModelsResponse(defaultModel: "qwen3:30b", models: ["qwen3:30b", "gemma3:27b"])
     var speakersResponse = SpeakersResponse(

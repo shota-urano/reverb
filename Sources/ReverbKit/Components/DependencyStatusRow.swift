@@ -8,7 +8,7 @@ public enum DependencyCatalog {
             (name: "ffmpeg", available: status.ffmpeg),
             (name: "mlx-whisper", available: status.mlxWhisper),
             (name: "Ollama", available: status.ollama),
-            (name: "VOICEVOX", available: status.voicevox),
+            (name: "TTS", available: status.tts),
         ]
     }
 }
