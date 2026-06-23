@@ -15,7 +15,7 @@ from pipeline.transcribe import Transcriber, TranscribeStage
 from pipeline.tts import TtsStage, TtsSynthesizer
 from pipeline.translate import Translator, TranslateStage
 from schemas.enums import JobState, StageState
-from schemas.jobs import CreateJobResponse, JobResult, JobStatus
+from schemas.jobs import CreateJobResponse, JobListResponse, JobResult, JobStatus, JobSummary
 from schemas.settings import JobSettings, default_job_settings
 from services.pipeline_runner import PipelineRunner
 
@@ -54,6 +54,27 @@ class JobService:
 
     def get_job(self, job_id: str) -> JobStatus:
         return self.store.get(job_id).snapshot()
+
+    def list_jobs(self) -> JobListResponse:
+        records = sorted(
+            self.store.list_records(),
+            key=lambda record: record.created_at,
+            reverse=True,
+        )
+        summaries = [
+            JobSummary(
+                projectId=record.project_id,
+                jobId=record.job_id,
+                status=record.status,
+                createdAt=record.created_at.isoformat(),
+                duration=record.duration,
+                videoPath=record.video_path,
+                language=record.settings.stt.language if record.settings.stt else None,
+                currentStage=record.current_stage,
+            )
+            for record in records
+        ]
+        return JobListResponse(items=summaries)
 
     def cancel_job(self, job_id: str) -> None:
         changed = False

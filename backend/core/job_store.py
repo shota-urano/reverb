@@ -42,6 +42,7 @@ class JobRecord:
     video_path: str
     settings: JobSettings
     project_dir: Path
+    created_at: datetime
     status: JobState = JobState.queued
     current_stage: Optional[StageName] = None
     stages: Dict[StageName, StageRecord] = field(
@@ -102,6 +103,7 @@ class JobStore:
                 video_path=video_path,
                 settings=settings,
                 project_dir=project_dir,
+                created_at=datetime.now(timezone.utc),
             )
             self._jobs[job_id] = record
             self.save(record)
@@ -110,6 +112,10 @@ class JobStore:
     def get(self, job_id: str) -> JobRecord:
         with self._lock:
             return self._require(job_id)
+
+    def list_records(self) -> List[JobRecord]:
+        with self._lock:
+            return list(self._jobs.values())
 
     def mutate(self, job_id: str, fn: Callable[[JobRecord], None]) -> JobRecord:
         """状態遷移を JobStore のロック下で一括実行し、永続化する。
@@ -141,7 +147,7 @@ class JobStore:
                 "version": 1,
                 "projectId": record.project_id,
                 "videoPath": record.video_path,
-                "createdAt": datetime.now(timezone.utc).isoformat(),
+                "createdAt": record.created_at.isoformat(),
                 "duration": record.duration,
                 "settings": model_to_dict(record.settings, by_alias=True),
                 "job": {
@@ -193,12 +199,14 @@ class JobStore:
                 )
             error = ErrorBody(**job["error"]) if job.get("error") else None
             current_stage = job.get("currentStage")
+            created_at = _parse_created_at(payload.get("createdAt"), manifest_path)
             return JobRecord(
                 job_id=job["jobId"],
                 project_id=payload["projectId"],
                 video_path=payload["videoPath"],
                 settings=settings,
                 project_dir=manifest_path.parent,
+                created_at=created_at,
                 status=JobState(job["status"]),
                 current_stage=StageName(current_stage) if current_stage else None,
                 stages=stages,
@@ -216,8 +224,19 @@ class JobStore:
             return None
 
     def all(self) -> List[JobRecord]:
-        with self._lock:
-            return list(self._jobs.values())
+        return self.list_records()
+
+
+def _parse_created_at(value: Optional[str], manifest_path: Path) -> datetime:
+    if value:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    # Legacy manifests did not persist creation time; file mtime is the closest stable
+    # local signal available, falling back to now only if the filesystem metadata fails.
+    try:
+        return datetime.fromtimestamp(manifest_path.stat().st_mtime, tz=timezone.utc)
+    except OSError:
+        return datetime.now(timezone.utc)
 
 
 def invalidate_downstream_stages(

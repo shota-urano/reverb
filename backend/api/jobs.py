@@ -7,9 +7,14 @@ from fastapi.responses import StreamingResponse
 
 from core.serialization import model_to_json
 from schemas.enums import JobState
-from schemas.jobs import CreateJobRequest, CreateJobResponse, JobResult, JobStatus
+from schemas.jobs import CreateJobRequest, CreateJobResponse, JobListResponse, JobResult, JobStatus
 
 router = APIRouter(prefix="/jobs")
+
+
+@router.get("", response_model=JobListResponse)
+def list_jobs(request: Request) -> JobListResponse:
+    return request.app.state.job_service.list_jobs()
 
 
 @router.post("", response_model=CreateJobResponse)
