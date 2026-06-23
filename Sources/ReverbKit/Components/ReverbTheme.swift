@@ -26,6 +26,13 @@ public enum ReverbTheme {
         public static let selection = accent.opacity(0.10)
     }
 
+    // MARK: - 動画面（§5 / USL-89）
+
+    public enum Player {
+        /// 動画面のアスペクト比 16:9。マジックナンバーにせずここで一元管理する（USL-89）。
+        public static let videoAspectRatio: CGFloat = 16.0 / 9.0
+    }
+
     // MARK: - 形状（§4）
 
     public enum Radius {
