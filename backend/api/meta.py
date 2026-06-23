@@ -17,7 +17,7 @@ def health(request: Request) -> HealthResponse:
             "ffmpeg": request.app.state.ffmpeg.available(),
             "mlx_whisper": request.app.state.whisper.available(),
             "ollama": request.app.state.ollama.ping(),
-            "voicevox": request.app.state.voicevox.ping(),
+            "tts": request.app.state.tts.ping(),
         },
     )
 
@@ -42,7 +42,7 @@ def speakers(request: Request) -> SpeakersResponse:
                 name=config.default_speaker_name,
                 styleId=config.default_style_id,
             ),
-            "speakers": request.app.state.voicevox.list_speakers(),
+            "speakers": request.app.state.tts.list_speakers(),
         }
     )
 

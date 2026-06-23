@@ -45,8 +45,8 @@ wires the real stages behind the common `Stage` ABC, in order:
 | `TranscribeStage` | `pipeline/transcribe.py` | mlx-whisper（large-v3 既定） | USL-70 |
 | `TranslateStage` | `pipeline/translate.py` | Ollama（HTTP） | USL-71 |
 | `SubtitleStage` | `pipeline/subtitle.py` | —（整形のみ） | USL-72 |
-| `TtsStage` | `pipeline/tts.py` | VOICEVOX（ローカルHTTP） | USL-73 |
-| `MixStage` | `pipeline/mix.py` | ffmpeg + VOICEVOX | USL-74 |
+| `TtsStage` | `pipeline/tts.py` | AivisSpeech / VOICEVOX 互換HTTP | USL-73 / USL-92 |
+| `MixStage` | `pipeline/mix.py` | ffmpeg + TTS再合成 | USL-74 |
 
 > `pipeline/stub_stages.py`（`StubStage` / `build_stub_stages`）は**テスト専用**で、
 > 空のプレースホルダ成果物を書き出す。本番パイプラインには配線されていない
@@ -62,9 +62,35 @@ wires the real stages behind the common `Stage` ABC, in order:
   `REVERB_STT_MODEL_REPOS`。初回実行前にモデル重みのキャッシュ（ダウンロード）が必要。
 - **翻訳 (Ollama)**: 既定 `http://127.0.0.1:11434`（`REVERB_OLLAMA_BASE_URL`）で Ollama を起動し、
   既定モデル `qwen3:30b-a3b`（`REVERB_TRANSLATE_MODEL`）を事前に `ollama pull` しておく。
-- **TTS (VOICEVOX)**: 既定 `http://127.0.0.1:50021`（`REVERB_VOICEVOX_BASE_URL`）で VOICEVOX エンジンを
-  起動。既定話者は `REVERB_SPEAKER_ID` / `REVERB_SPEAKER_NAME` / `REVERB_STYLE_ID`。
+- **TTS (AivisSpeech / VOICEVOX)**: 既定エンジンは AivisSpeech
+  （`REVERB_TTS_ENGINE=aivisspeech`）。VOICEVOX を使う場合は
+  `REVERB_TTS_ENGINE=voicevox` にする。既定話者は
+  `REVERB_SPEAKER_ID` / `REVERB_SPEAKER_NAME` / `REVERB_STYLE_ID`。
 - **ffmpeg / ffprobe**: PATH 上に存在すること（`REVERB_FFMPEG_BIN` / `REVERB_FFPROBE_BIN` で上書き可）。
+
+### TTS engine selection
+
+AivisSpeech は VOICEVOX 互換 HTTP API として扱う。base URL はループバックのみ許可する。
+
+```bash
+# AivisSpeech (default)
+export REVERB_TTS_ENGINE=aivisspeech
+export REVERB_AIVISSPEECH_BASE_URL=http://127.0.0.1:10101
+/Applications/AivisSpeech.app/Contents/Resources/AivisSpeech-Engine/run
+
+# VOICEVOX fallback option
+export REVERB_TTS_ENGINE=voicevox
+export REVERB_VOICEVOX_BASE_URL=http://127.0.0.1:50021
+```
+
+`REVERB_VOICEVOX_SYNTHESIS_TIMEOUT_SECONDS` は VOICEVOX 互換TTS共通の合成タイムアウトとして使う。
+既存環境変数との互換を優先し、AivisSpeech でも同じ値を参照する。
+
+話者 ID はエンジン側の `/speakers` で確認してから設定する。
+
+```bash
+curl http://127.0.0.1:10101/speakers
+```
 
 ## TODO: VOICEVOX ライセンス・クレジット表記（USL-81 / ルール12）
 
@@ -76,3 +102,9 @@ TTS（VOICEVOX）の本実装・出荷前に、利用規約とクレジット表
 - 確定後、表記文言を Frontend のクレジット UI（USL-76/プレーヤー）へ反映する。
 
 参照: `docs/specs/06-tts.md §7`, `docs/specs/00-overview.md §5`, Linear USL-81。
+
+## TODO: AivisSpeech ライセンス・クレジット表記（USL-92 / ルール12）
+
+AivisSpeech のエンジン本体と採用音声モデルの利用規約・クレジット表記を確認する。
+音声モデルは ACML / ACML-NC / CC0 などモデルごとに条件が異なるため、採用モデル名、
+利用範囲、必要表記を Frontend のクレジット UI へ反映する。

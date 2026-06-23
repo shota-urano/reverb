@@ -17,7 +17,7 @@ cue ごとの日本語 TTS 音声を、元動画の発話タイミングに合�
 |---|---|
 | 入力 | `tts/cue_%04d.wav`（[`06`](./06-tts.md)）、`subtitles.json` の cue タイミング（[`05`](./05-subtitle.md)）、元音声 |
 | 出力 | `voiceover.wav`（全長ミックス。[`09-data-model.md`](./09-data-model.md) §3.6） |
-| ツール | **ffmpeg**（サブプロセス）、VOICEVOX 再合成（speedScale 適用時） |
+| ツール | **ffmpeg**（サブプロセス）、TTS 再合成（speedScale 適用時） |
 
 ---
 
@@ -37,7 +37,7 @@ cue ごとの日本語 TTS 音声を、元動画の発話タイミングに合�
 
 - cue の元区間長 `target = end - start` に対し、TTS 音声長を合わせるための話速倍率を算出。
 - **範囲は 0.8〜1.3 にクランプ**（範囲外は丸める）。範囲内で収まらない分は ② へ。
-- speedScale は VOICEVOX 合成パラメータとして適用（[`06`](./06-tts.md) と連携：等速生成→speedScale 指定で再合成、または audio_query に反映）。
+- speedScale は TTS 合成パラメータとして適用（[`06`](./06-tts.md) と連携：等速生成→speedScale 指定で再合成、または audio_query に反映）。
 
 ### 3.2 ② 無音区間で吸収
 

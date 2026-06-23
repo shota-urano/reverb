@@ -7,7 +7,7 @@ class DependencyStatus(BaseModel):
     ffmpeg: bool
     mlx_whisper: bool = Field(alias="mlx_whisper")
     ollama: bool
-    voicevox: bool
+    tts: bool
 
 
 class HealthResponse(BaseModel):

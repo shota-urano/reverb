@@ -35,6 +35,11 @@ def test_backend_config_rejects_non_loopback_engine_url() -> None:
         dataclasses.replace(BackendConfig(), ollama_base_url="http://cloud.example.com:11434")
     with pytest.raises(ValueError):
         dataclasses.replace(BackendConfig(), host="0.0.0.0")
+    with pytest.raises(ValueError):
+        dataclasses.replace(
+            BackendConfig(),
+            aivisspeech_base_url="http://cloud.example.com:10101",
+        )
 
 
 def test_backend_config_rejects_invalid_extract_audio_settings() -> None:
@@ -100,3 +105,30 @@ def test_with_projects_dir_preserves_extract_config(tmp_path) -> None:
     assert copied.extract_sample_rate == 22050
     assert copied.extract_channels == 2
     assert copied.extract_codec == "pcm_f32le"
+
+
+def test_backend_config_tts_engine_defaults_to_aivisspeech(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("REVERB_TTS_ENGINE", raising=False)
+    monkeypatch.delenv("REVERB_AIVISSPEECH_BASE_URL", raising=False)
+
+    config = BackendConfig()
+
+    assert config.default_tts_engine == "aivisspeech"
+    assert config.aivisspeech_base_url == "http://127.0.0.1:10101"
+
+
+def test_backend_config_tts_engine_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("REVERB_TTS_ENGINE", "voicevox")
+    monkeypatch.setenv("REVERB_AIVISSPEECH_BASE_URL", "http://localhost:10101/")
+
+    config = BackendConfig()
+
+    assert config.default_tts_engine == "voicevox"
+    assert config.aivisspeech_base_url == "http://localhost:10101/"
+
+
+def test_backend_config_rejects_unknown_tts_engine() -> None:
+    with pytest.raises(ValueError):
+        BackendConfig(default_tts_engine="remote-tts")

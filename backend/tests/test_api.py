@@ -10,7 +10,7 @@ def test_health_returns_dependency_availability_without_raising() -> None:
     app.state.ffmpeg.available = lambda: False
     app.state.whisper.available = lambda: False
     app.state.ollama.ping = lambda: False
-    app.state.voicevox.ping = lambda: False
+    app.state.tts.ping = lambda: False
 
     response = TestClient(app).get("/health")
 
@@ -22,7 +22,7 @@ def test_health_returns_dependency_availability_without_raising() -> None:
             "ffmpeg": False,
             "mlx_whisper": False,
             "ollama": False,
-            "voicevox": False,
+            "tts": False,
         },
     }
 
@@ -30,7 +30,7 @@ def test_health_returns_dependency_availability_without_raising() -> None:
 def test_models_and_speakers_fall_back_to_empty_lists_when_engines_are_down() -> None:
     app = create_app()
     app.state.ollama.list_models = lambda: []
-    app.state.voicevox.list_speakers = lambda: []
+    app.state.tts.list_speakers = lambda: []
 
     client = TestClient(app)
 

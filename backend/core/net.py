@@ -5,7 +5,7 @@ from typing import Optional
 from urllib.parse import urlparse
 
 # ローカル完結（ルール1）を構造で担保するための共通バリデーション。
-# 待受ホスト・外部エンジン（Ollama/VOICEVOX）URL をループバックのみに制限し、
+# 待受ホスト・外部エンジン（Ollama/TTS）URL をループバックのみに制限し、
 # クラウド/外部ホストへの送信を起点で不可能にする。
 
 _LOOPBACK_HOSTNAMES = {"localhost"}

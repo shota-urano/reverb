@@ -127,11 +127,11 @@ def test_tts_cue_failure_after_retries_writes_silent_placeholder_and_continues(
     assert get_cue_wav_path(record.project_dir, 1).exists()
 
 
-def test_tts_voicevox_unavailable_before_any_cue_fails_retryable(tmp_path: Path) -> None:
+def test_tts_unavailable_before_any_cue_fails_retryable(tmp_path: Path) -> None:
     voicevox = FakeVoicevox(
         errors={
             "こんにちは。": [
-                StageError("VOICEVOX_UNAVAILABLE", "not running", retryable=True),
+                StageError("TTS_UNAVAILABLE", "not running", retryable=True),
             ]
         }
     )
@@ -147,7 +147,7 @@ def test_tts_voicevox_unavailable_before_any_cue_fails_retryable(tmp_path: Path)
 
     assert record.status == JobState.failed
     assert record.error is not None
-    assert record.error.code == "VOICEVOX_UNAVAILABLE"
+    assert record.error.code == "TTS_UNAVAILABLE"
     assert record.error.retryable is True
     assert record.stages[StageName.tts].status == StageState.failed
 

@@ -16,10 +16,14 @@ _SILENT_SAMPLE_RATE = 24000
 _SILENT_CHANNELS = 1
 _SILENT_SAMPLE_WIDTH_BYTES = 2
 _SILENT_DURATION_SECONDS = 0.5
-_FATAL_STAGE_ERROR_CODES = {"VOICEVOX_UNAVAILABLE", "SPEAKER_INVALID"}
+_FATAL_STAGE_ERROR_CODES = {"TTS_UNAVAILABLE", "SPEAKER_INVALID"}
 
 
 class TtsSynthesizer(Protocol):
+    def ping(self) -> bool: ...
+
+    def list_speakers(self) -> list: ...
+
     def synthesize(
         self,
         text: str,

@@ -17,7 +17,7 @@ UI（SwiftUI）と処理（Python）を分離した 2層サイドカー構成を
 |----|------|------|-------------|
 | UI 層 | SwiftUI + AVKit | 動画選択、再生・字幕表示、設定、進捗表示、API 呼び出し | STT/翻訳/TTS/ミックス等の処理ロジック |
 | バックエンド層 | Python（サイドカー） | ジョブ管理、パイプライン統括、外部エンジン制御、進捗通知 | 画面描画 |
-| 外部エンジン | ffmpeg / mlx-whisper / Ollama / VOICEVOX | 各処理の実行 | — |
+| 外部エンジン | ffmpeg / mlx-whisper / Ollama / AivisSpeech / VOICEVOX | 各処理の実行 | — |
 
 **原則**: UI ↔ バックエンドの連携手段は **ローカル HTTP のみ**。他の IPC（XPC, gRPC, ソケット直叩き等）を勝手に追加しない。
 
@@ -48,7 +48,7 @@ UI（SwiftUI）と処理（Python）を分離した 2層サイドカー構成を
 ### 3.3 外部エンジンの前提
 
 - **Ollama**: ローカルで起動済みであることを前提（HTTP API）。未起動時は `GET /health` の `dependencies` で `ollama: false` を返す。
-- **VOICEVOX**: ローカル HTTP API。起動状態を同様に `dependencies` で返す。
+- **TTS**: AivisSpeech / VOICEVOX 互換のローカル HTTP API。起動状態を同様に `dependencies` で返す。
 - **ffmpeg / mlx-whisper**: バックエンドからサブプロセス／ライブラリ呼び出し。
 - 依存エンジンの導入・起動手順は別途運用ドキュメント化（本書スコープ外）。
 
@@ -71,7 +71,7 @@ UI（SwiftUI）と処理（Python）を分離した 2層サイドカー構成を
     "ffmpeg": true,
     "mlx_whisper": true,
     "ollama": true,
-    "voicevox": true
+    "tts": true
   }
 }
 ```
@@ -84,7 +84,7 @@ UI（SwiftUI）と処理（Python）を分離した 2層サイドカー構成を
 ```
 
 #### `GET /speakers`
-VOICEVOX の話者一覧（[`06-tts.md`](./06-tts.md)）。
+アクティブな TTS エンジンの話者一覧（[`06-tts.md`](./06-tts.md)）。
 
 ```json
 { "default": {"speakerId": 13, "name": "青山龍星", "styleId": 0},
