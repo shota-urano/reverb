@@ -86,12 +86,20 @@ class BackendConfig:
             ),
         )
     )
-    # 導入時に話者ID確認。AivisSpeech/VOICEVOX 互換APIで同じ設定値を流用する。
-    default_speaker_id: int = field(default_factory=lambda: _env_int("REVERB_SPEAKER_ID", 13))
-    default_speaker_name: str = field(
-        default_factory=lambda: os.getenv("REVERB_SPEAKER_NAME", "青山龍星")
+    # 導入時に話者ID確認。既定エンジン AivisSpeech の「阿井田 茂 / ノーマル」
+    # （落ち着いた男性ナレーション, ACML 1.0, USL-92 採用）を既定値にする。
+    # VOICEVOX に切替える場合は REVERB_SPEAKER_ID/STYLE_ID を VOICEVOX 側の
+    # 話者ID（例: 青山龍星 ノーマル=13）で上書きする。/speakers で確認可。
+    # 合成は style_id を VOICEVOX 互換 API の speaker パラメータに渡す。
+    default_speaker_id: int = field(
+        default_factory=lambda: _env_int("REVERB_SPEAKER_ID", 1310138976)
     )
-    default_style_id: int = field(default_factory=lambda: _env_int("REVERB_STYLE_ID", 0))
+    default_speaker_name: str = field(
+        default_factory=lambda: os.getenv("REVERB_SPEAKER_NAME", "阿井田 茂")
+    )
+    default_style_id: int = field(
+        default_factory=lambda: _env_int("REVERB_STYLE_ID", 1310138976)
+    )
     # VOICEVOX 互換TTSエンジン共通の合成タイムアウト。既存環境変数との互換を
     # 優先し、AivisSpeech でも同じ値を使う。
     voicevox_synthesis_timeout_seconds: float = field(
