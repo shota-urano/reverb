@@ -39,6 +39,12 @@ def cancel_job(job_id: str, request: Request) -> dict:
     return {}
 
 
+@router.delete("/{job_id}", status_code=200)
+def delete_job(job_id: str, request: Request) -> dict:
+    request.app.state.job_service.delete_job(job_id)
+    return {}
+
+
 @router.get("/{job_id}/result", response_model=JobResult)
 def job_result(job_id: str, request: Request) -> JobResult:
     return request.app.state.job_service.result(job_id)
@@ -57,6 +63,8 @@ def job_events(job_id: str, request: Request) -> StreamingResponse:
                 except Empty:
                     yield ": keep-alive\n\n"
                     continue
+                if snapshot is None:
+                    break
                 if snapshot.status == JobState.done:
                     result = service.result(job_id)
                     yield (

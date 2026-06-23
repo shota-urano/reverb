@@ -129,6 +129,32 @@ class JobStore:
             self.save(record)
             return record
 
+    def delete(self, job_id: str) -> JobRecord:
+        with self._lock:
+            record = self._require(job_id)
+            if record.status in (JobState.running, JobState.queued):
+                # queued も background runner が開始し得るため、running と同じく削除を拒否する。
+                raise BackendError(
+                    code="JOB_RUNNING",
+                    message=f"Job is running: {job_id}",
+                    status_code=409,
+                    retryable=True,
+                )
+
+            projects_dir = self.projects_dir.resolve()
+            project_dir = record.project_dir.resolve()
+            if project_dir == projects_dir or not project_dir.is_relative_to(projects_dir):
+                raise BackendError(
+                    code="INVALID_PATH",
+                    message=f"Project directory is outside projects dir: {record.project_dir}",
+                    status_code=400,
+                    retryable=False,
+                )
+
+            shutil.rmtree(project_dir, ignore_errors=True)
+            del self._jobs[job_id]
+            return record
+
     def _require(self, job_id: str) -> JobRecord:
         try:
             return self._jobs[job_id]
@@ -142,6 +168,10 @@ class JobStore:
 
     def save(self, record: JobRecord) -> None:
         with self._lock:
+            if record.job_id not in self._jobs:
+                # delete() 済みのジョブを runner が後追いで save し、
+                # project.json を再生成して復活させるのを防ぐ。
+                return
             record.project_dir.mkdir(parents=True, exist_ok=True)
             manifest = {
                 "version": 1,
