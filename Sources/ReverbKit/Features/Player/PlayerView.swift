@@ -14,6 +14,8 @@ public struct PlayerView: View {
     @State private var coordinator = PlaybackCoordinator()
     /// スライダー操作中の暫定割合（確定時に endScrubbing へ渡す）。
     @State private var scrubFraction: Double = 0
+    /// この View をホストしている NSWindow（フルスクリーン切替の対象・USL-90）。
+    @State private var hostingWindow: NSWindow?
 
     public init(model: AppModel) {
         self.model = model
@@ -34,6 +36,7 @@ public struct PlayerView: View {
         }
         .padding(ReverbTheme.Metrics.contentPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(WindowAccessor { hostingWindow = $0 })
         .task(id: model.playerJobId) {
             // コールバックを先に張ってから読込（最初の周期通知を取りこぼさない）。
             coordinator.onTime = { viewModel.updateObservedTime($0) }
@@ -283,12 +286,25 @@ public struct PlayerView: View {
 
     private var fullscreenButton: some View {
         Button {
-            NSApp.keyWindow?.toggleFullScreen(nil)
+            toggleFullScreen()
         } label: {
             Label("フルスクリーン", systemImage: "arrow.up.left.and.arrow.down.right")
         }
         .buttonStyle(.borderless)
         .accessibilityLabel("フルスクリーン")
+    }
+
+    /// ネイティブ・フルスクリーンを切り替える（USL-90）。
+    /// ホスト中のウィンドウを優先し、取れなければ key/main/可視ウィンドウへフォールバックする。
+    /// アクセサリ起動などで `.fullScreenPrimary` が欠ける場合に備え、呼ぶ前に必ず挿入する。
+    private func toggleFullScreen() {
+        guard let window = hostingWindow
+            ?? NSApp.keyWindow
+            ?? NSApp.mainWindow
+            ?? NSApp.windows.first(where: { $0.isVisible })
+        else { return }
+        window.collectionBehavior.insert(.fullScreenPrimary)
+        window.toggleFullScreen(nil)
     }
 
     // MARK: - 下段（完了工程・オーディオバランス）
