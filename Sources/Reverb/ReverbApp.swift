@@ -1,10 +1,12 @@
 import SwiftUI
+import AppKit
 import ReverbKit
 
 /// アプリのエントリ（@main）。実体は ReverbKit 側の AppShell / AppModel。
 /// サイドカー起動コマンドは環境変数で解決（パスをコードに固定しない / §3.1・ルール6）。
 @main
 struct ReverbApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var model = AppModel.makeDefault()
 
     var body: some Scene {
@@ -15,6 +17,17 @@ struct ReverbApp: App {
         .commands {
             // 既定の新規ウィンドウ等は MVP では不要。
         }
+    }
+}
+
+/// 起動時にアプリを通常アプリ化する（USL-90）。
+/// `swift run` 直起動や活性化ポリシー次第ではアクセサリ（background-only）として起動し、
+/// メニューバーやネイティブ・フルスクリーン（NSWindow.toggleFullScreen）が無効化される。
+/// `.regular` 化でこれらを有効にする。本番 `.app`（LSUIElement 無し）とも整合する。
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
     }
 }
 
