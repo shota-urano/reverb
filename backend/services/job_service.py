@@ -28,7 +28,7 @@ class JobService:
         ffmpeg: AudioExtractor,
         whisper: Transcriber,
         ollama: Translator,
-        voicevox: TtsSynthesizer,
+        tts: TtsSynthesizer,
     ) -> None:
         self.config = config
         self.store = store
@@ -37,7 +37,7 @@ class JobService:
         self.runner = PipelineRunner(
             config,
             store,
-            build_pipeline_stages(ffmpeg, whisper, ollama, voicevox),
+            build_pipeline_stages(ffmpeg, whisper, ollama, tts),
             self._notify,
         )
 
@@ -110,13 +110,13 @@ def build_pipeline_stages(
     ffmpeg: AudioExtractor,
     whisper: Transcriber,
     translator: Translator,
-    voicevox: TtsSynthesizer,
+    tts: TtsSynthesizer,
 ) -> List[Stage]:
     return [
         ExtractStage(ffmpeg),
         TranscribeStage(whisper),
         TranslateStage(translator),
         SubtitleStage(),
-        TtsStage(voicevox),
-        MixStage(ffmpeg, voicevox),
+        TtsStage(tts),
+        MixStage(ffmpeg, tts),
     ]

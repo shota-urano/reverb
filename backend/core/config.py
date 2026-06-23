@@ -19,6 +19,15 @@ class BackendConfig:
     voicevox_base_url: str = field(
         default_factory=lambda: os.getenv("REVERB_VOICEVOX_BASE_URL", "http://127.0.0.1:50021")
     )
+    default_tts_engine: str = field(
+        default_factory=lambda: os.getenv("REVERB_TTS_ENGINE", "aivisspeech")
+    )
+    aivisspeech_base_url: str = field(
+        default_factory=lambda: os.getenv(
+            "REVERB_AIVISSPEECH_BASE_URL",
+            "http://127.0.0.1:10101",
+        )
+    )
     dependency_timeout_seconds: float = 0.5
     ffmpeg_bin: str = field(default_factory=lambda: os.getenv("REVERB_FFMPEG_BIN", "ffmpeg"))
     ffprobe_bin: str = field(default_factory=lambda: os.getenv("REVERB_FFPROBE_BIN", "ffprobe"))
@@ -77,11 +86,22 @@ class BackendConfig:
             ),
         )
     )
-    default_speaker_id: int = field(default_factory=lambda: _env_int("REVERB_SPEAKER_ID", 13))
-    default_speaker_name: str = field(
-        default_factory=lambda: os.getenv("REVERB_SPEAKER_NAME", "青山龍星")
+    # 導入時に話者ID確認。既定エンジン AivisSpeech の「阿井田 茂 / ノーマル」
+    # （落ち着いた男性ナレーション, ACML 1.0, USL-92 採用）を既定値にする。
+    # VOICEVOX に切替える場合は REVERB_SPEAKER_ID/STYLE_ID を VOICEVOX 側の
+    # 話者ID（例: 青山龍星 ノーマル=13）で上書きする。/speakers で確認可。
+    # 合成は style_id を VOICEVOX 互換 API の speaker パラメータに渡す。
+    default_speaker_id: int = field(
+        default_factory=lambda: _env_int("REVERB_SPEAKER_ID", 1310138976)
     )
-    default_style_id: int = field(default_factory=lambda: _env_int("REVERB_STYLE_ID", 0))
+    default_speaker_name: str = field(
+        default_factory=lambda: os.getenv("REVERB_SPEAKER_NAME", "阿井田 茂")
+    )
+    default_style_id: int = field(
+        default_factory=lambda: _env_int("REVERB_STYLE_ID", 1310138976)
+    )
+    # VOICEVOX 互換TTSエンジン共通の合成タイムアウト。既存環境変数との互換を
+    # 優先し、AivisSpeech でも同じ値を使う。
     voicevox_synthesis_timeout_seconds: float = field(
         default_factory=lambda: _env_float("REVERB_VOICEVOX_SYNTHESIS_TIMEOUT_SECONDS", 30.0)
     )
@@ -103,6 +123,9 @@ class BackendConfig:
         validate_loopback_host("REVERB_HOST", self.host)
         validate_loopback_url("REVERB_OLLAMA_BASE_URL", self.ollama_base_url)
         validate_loopback_url("REVERB_VOICEVOX_BASE_URL", self.voicevox_base_url)
+        validate_loopback_url("REVERB_AIVISSPEECH_BASE_URL", self.aivisspeech_base_url)
+        if self.default_tts_engine not in {"aivisspeech", "voicevox"}:
+            raise ValueError("REVERB_TTS_ENGINE must be one of: aivisspeech, voicevox")
         if self.extract_sample_rate <= 0:
             raise ValueError("REVERB_EXTRACT_SAMPLE_RATE must be greater than 0")
         if self.extract_channels <= 0:
@@ -137,6 +160,8 @@ class BackendConfig:
             port=self.port,
             ollama_base_url=self.ollama_base_url,
             voicevox_base_url=self.voicevox_base_url,
+            default_tts_engine=self.default_tts_engine,
+            aivisspeech_base_url=self.aivisspeech_base_url,
             dependency_timeout_seconds=self.dependency_timeout_seconds,
             ffmpeg_bin=self.ffmpeg_bin,
             ffprobe_bin=self.ffprobe_bin,

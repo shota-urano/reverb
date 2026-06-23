@@ -12,9 +12,9 @@ from typing import Optional
 import uvicorn
 from fastapi import FastAPI
 
+from adapters.factory import build_tts_adapter
 from adapters.ffmpeg import FFmpegAdapter
 from adapters.ollama import OllamaAdapter
-from adapters.voicevox import VoicevoxAdapter
 from adapters.whisper_mlx import WhisperMLXAdapter
 from api import jobs_router, meta_router
 from core.config import BackendConfig
@@ -38,11 +38,7 @@ def create_app(projects_dir: Optional[Path] = None) -> FastAPI:
         config.translate_timeout_seconds,
         config.ollama_keep_alive,
     )
-    app.state.voicevox = VoicevoxAdapter(
-        config.voicevox_base_url,
-        config.dependency_timeout_seconds,
-        config.voicevox_synthesis_timeout_seconds,
-    )
+    app.state.tts = build_tts_adapter(config)
     app.state.job_store = JobStore(config.projects_dir)
     app.state.job_service = JobService(
         config,
@@ -50,7 +46,7 @@ def create_app(projects_dir: Optional[Path] = None) -> FastAPI:
         app.state.ffmpeg,
         app.state.whisper,
         app.state.ollama,
-        app.state.voicevox,
+        app.state.tts,
     )
     app.include_router(meta_router)
     app.include_router(jobs_router)
