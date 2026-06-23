@@ -29,9 +29,13 @@ public final class AppModel {
     public private(set) var playerJobId: String?
 
     /// ライブラリが管理するプロジェクト一覧（design-system ProjectRow 用 / screens.md §1）。
-    /// 一覧取得 API は未定義のため、セッション内で `POST /jobs` したものをローカル保持する
-    /// （永続化は 09-data-model の backend スコープ）。新しい順。
+    /// 起動時に `GET /jobs` で永続プロジェクトを復元し、セッション内で `POST /jobs` した分とマージする
+    /// （USL-95 / 永続化は 09-data-model の backend スコープ）。新しい順。
     public var projects: [ProjectRowData] { records.map(\.row) }
+
+    /// 一覧取得（`GET /jobs`）が失敗したときのメッセージ（成功・未試行は nil）。
+    /// 接続は維持したまま一覧が空になる旨を UI が表示できるよう、握りつぶさず保持する（USL-95）。
+    public private(set) var libraryLoadError: String?
 
     /// サイドバー「最近のプロジェクト」（design-system §5.1）。projects から派生し一覧と一致させる。
     public var recentProjects: [RecentProject] {
@@ -51,7 +55,7 @@ public final class AppModel {
     public private(set) var activeJobId: String?
 
     /// アクティブジョブのプロジェクト概要（タイトル・再生時間・言語ペア）。処理中画面のヘッダ表示に使う。
-    /// 一覧取得 API は未定義のため、セッション内台帳から引く（永続化は 09-data-model の backend スコープ）。
+    /// 起動時に復元した永続一覧、またはセッション内台帳から引く（USL-95）。
     public var activeProject: ProjectRowData? {
         guard let activeJobId else { return nil }
         return records.first { $0.jobId == activeJobId }?.row
@@ -117,6 +121,9 @@ public final class AppModel {
             // /health 成功を確認してから ready にする（§3.1 step 4）。
             self.health = try await modelRepository.health()
             connection = .ready
+            // 接続確立後に永続プロジェクト一覧を取得して台帳を復元する（USL-95）。
+            // 失敗しても接続は維持する（一覧が空になるだけ）。
+            await loadProjects()
         } catch {
             // launch 成功後（/health 失敗等）に失敗した場合も、サイドカーを停止し参照を解放する。
             // 放置するとバックエンドプロセスが残留し、次の start() で多重起動になりうる。
@@ -237,6 +244,67 @@ public final class AppModel {
     }
 
     // MARK: - Private
+
+    /// `GET /jobs` で永続プロジェクトを取得し、台帳へマージする（USL-95）。
+    /// 取得失敗は接続を落とさず、メッセージを `libraryLoadError` に残す（黙って握りつぶさない）。
+    private func loadProjects() async {
+        guard let jobRepository else { return }
+        do {
+            let response = try await jobRepository.listJobs()
+            mergePersistedProjects(response.items)
+            libraryLoadError = nil
+        } catch is CancellationError {
+            // 再接続等によるキャンセルは無視（接続側で処理済み）。
+        } catch {
+            libraryLoadError = describe(error)
+        }
+    }
+
+    /// 永続一覧をローカル台帳へマージする。セッション内で作成済み（`POST /jobs`）の projectId は
+    /// セッション側を優先して重複排除し、残りを後ろに連結する（双方とも新しい順を維持）。
+    private func mergePersistedProjects(_ summaries: [JobSummary]) {
+        let knownIds = Set(records.map(\.row.id))
+        let restored = summaries
+            .filter { !knownIds.contains($0.projectId) }
+            .map(Self.makeRecord(from:))
+        records.append(contentsOf: restored)
+    }
+
+    /// 永続一覧の1件を台帳レコードへ変換する。タイトルは元動画ファイル名から導出（作成時と同じ挙動）。
+    private static func makeRecord(from summary: JobSummary) -> ProjectRecord {
+        let url = URL(fileURLWithPath: summary.videoPath)
+        let row = ProjectRowData(
+            id: summary.projectId,
+            title: LibraryViewModel.projectTitle(from: url),
+            duration: summary.duration,
+            sourceLanguage: summary.language,
+            updatedAt: parseTimestamp(summary.createdAt),
+            state: summary.status
+        )
+        return ProjectRecord(row: row, jobId: summary.jobId, sourcePath: summary.videoPath)
+    }
+
+    /// ISO-8601 文字列を Date へ。解釈できなければ並び順を壊さないよう最古扱い（distantPast）。
+    /// backend は `datetime.now(timezone.utc).isoformat()`（小数秒付き）を出すため、小数秒対応を先に試す。
+    private static func parseTimestamp(_ string: String) -> Date {
+        fractionalTimestampParser.date(from: string)
+            ?? plainTimestampParser.date(from: string)
+            ?? .distantPast
+    }
+
+    /// 小数秒付き（例: `2026-06-23T06:45:56.448757+00:00`）。backend の実出力はこちら。
+    private static let fractionalTimestampParser: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    /// 小数秒なし（例: `2026-06-21T10:00:00+00:00`）のフォールバック。
+    private static let plainTimestampParser: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
 
     private func handleUnexpectedTermination(status: Int32, generation: Int) {
         // 古い起動世代の通知は破棄する（再接続中の状態汚染を防ぐ）。
