@@ -13,12 +13,20 @@ struct MockBackendClient: BackendClient {
         defaultSpeaker: .init(speakerId: 13, name: "青山龍星", styleId: 0),
         speakers: [.init(speakerId: 13, name: "青山龍星", styleId: 0)]
     )
+    /// `GET /jobs` の戻り（既定は空。起動時ライブラリ復元の検証で差し替える / USL-95）。
+    var jobList: JobListResponse = .init(items: [])
+    /// 非 nil なら `jobs()` がこのエラーで失敗する。
+    var jobsError: BackendError?
 
     func health() async throws -> HealthResponse { health }
     func models() async throws -> ModelsResponse { models }
     func speakers() async throws -> SpeakersResponse { speakers }
     func createJob(_ request: CreateJobRequest) async throws -> CreateJobResponse {
         .init(jobId: "j_test", projectId: "p_test", status: .queued)
+    }
+    func jobs() async throws -> JobListResponse {
+        if let jobsError { throw jobsError }
+        return jobList
     }
     func job(id: String) async throws -> JobStatus {
         .init(jobId: id, projectId: "p_test", status: .running, currentStage: .translate,
@@ -86,6 +94,7 @@ struct StubJobRepository: JobRepository {
         if let createError { throw createError }
         return createResponse
     }
+    func listJobs() async throws -> JobListResponse { JobListResponse(items: []) }
     func job(id: String) async throws -> JobStatus { throw BackendError.invalidResponse }
     func cancel(id: String) async throws {}
     func result(id: String) async throws -> JobResult { throw BackendError.invalidResponse }
@@ -120,6 +129,7 @@ actor BlockingJobRepository: JobRepository {
         return CreateJobResponse(jobId: "j_block", projectId: "p_block", status: .queued)
     }
 
+    func listJobs() async throws -> JobListResponse { JobListResponse(items: []) }
     func job(id: String) async throws -> JobStatus { throw BackendError.invalidResponse }
     func cancel(id: String) async throws {}
     func result(id: String) async throws -> JobResult { throw BackendError.invalidResponse }
@@ -150,6 +160,8 @@ final class ScriptedJobRepository: JobRepository, @unchecked Sendable {
     func createJob(videoPath: String, settings: JobSettings?) async throws -> CreateJobResponse {
         CreateJobResponse(jobId: "j_scripted", projectId: "p_scripted", status: .queued)
     }
+
+    func listJobs() async throws -> JobListResponse { JobListResponse(items: []) }
 
     func job(id: String) async throws -> JobStatus {
         try lock.withLock {
@@ -185,6 +197,7 @@ struct PlayerStubJobRepository: JobRepository {
     func createJob(videoPath: String, settings: JobSettings?) async throws -> CreateJobResponse {
         CreateJobResponse(jobId: "j_play", projectId: "p_play", status: .done)
     }
+    func listJobs() async throws -> JobListResponse { JobListResponse(items: []) }
     func job(id: String) async throws -> JobStatus { throw BackendError.invalidResponse }
     func cancel(id: String) async throws {}
     func result(id: String) async throws -> JobResult {

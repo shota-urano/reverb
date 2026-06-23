@@ -118,6 +118,54 @@ public struct CreateJobResponse: Codable, Sendable, Equatable {
     }
 }
 
+/// `GET /jobs` レスポンス（永続プロジェクト一覧 / USL-94）。`items` は新しい順（createdAt 降順）。
+public struct JobListResponse: Codable, Sendable, Equatable {
+    public let items: [JobSummary]
+
+    public init(items: [JobSummary]) {
+        self.items = items
+    }
+}
+
+/// 一覧の1件（`GET /jobs` の要素 / USL-94）。`GET /jobs/{id}` より軽量で、行表示・遷移に要る分のみ持つ。
+public struct JobSummary: Codable, Sendable, Equatable, Identifiable {
+    public let projectId: String
+    public let jobId: String
+    public let status: JobState
+    /// 作成時刻（ISO-8601 文字列）。契約は文字列なのでそのまま保持し、表示側で Date 化する。
+    public let createdAt: String
+    /// 再生時間（秒）。未完了は 0。
+    public let duration: Double
+    /// 元動画パス（タイトル導出・Finder 表示に使う）。
+    public let videoPath: String
+    /// STT 言語指定（自動判定は null / MVP は基本 null）。
+    public let language: String?
+    /// 進行中の工程（完了・未着手は null）。
+    public let currentStage: StageName?
+
+    public var id: String { projectId }
+
+    public init(
+        projectId: String,
+        jobId: String,
+        status: JobState,
+        createdAt: String,
+        duration: Double,
+        videoPath: String,
+        language: String?,
+        currentStage: StageName?
+    ) {
+        self.projectId = projectId
+        self.jobId = jobId
+        self.status = status
+        self.createdAt = createdAt
+        self.duration = duration
+        self.videoPath = videoPath
+        self.language = language
+        self.currentStage = currentStage
+    }
+}
+
 /// `GET /jobs/{id}` レスポンス（進捗・ステージ状態）。
 public struct JobStatus: Codable, Sendable, Equatable {
     public let jobId: String

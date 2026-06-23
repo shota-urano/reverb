@@ -9,6 +9,8 @@ public protocol BackendClient: Sendable {
     func models() async throws -> ModelsResponse
     func speakers() async throws -> SpeakersResponse
     func createJob(_ request: CreateJobRequest) async throws -> CreateJobResponse
+    /// 永続プロジェクト一覧（`GET /jobs` / USL-94）。新しい順。
+    func jobs() async throws -> JobListResponse
     func job(id: String) async throws -> JobStatus
     func cancelJob(id: String) async throws
     func jobResult(id: String) async throws -> JobResult
@@ -48,6 +50,10 @@ public final class HTTPBackendClient: BackendClient {
 
     public func createJob(_ request: CreateJobRequest) async throws -> CreateJobResponse {
         try await post("jobs", body: request)
+    }
+
+    public func jobs() async throws -> JobListResponse {
+        try await get("jobs")
     }
 
     public func job(id: String) async throws -> JobStatus {

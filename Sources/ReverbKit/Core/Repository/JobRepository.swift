@@ -4,6 +4,8 @@ import Foundation
 /// （View に処理ロジックを置かない / ルール3）。
 public protocol JobRepository: Sendable {
     func createJob(videoPath: String, settings: JobSettings?) async throws -> CreateJobResponse
+    /// 永続プロジェクト一覧（`GET /jobs` / USL-94）。起動時のライブラリ復元に使う。新しい順。
+    func listJobs() async throws -> JobListResponse
     func job(id: String) async throws -> JobStatus
     func cancel(id: String) async throws
     func result(id: String) async throws -> JobResult
@@ -21,6 +23,10 @@ public struct DefaultJobRepository: JobRepository {
 
     public func createJob(videoPath: String, settings: JobSettings?) async throws -> CreateJobResponse {
         try await client.createJob(CreateJobRequest(videoPath: videoPath, settings: settings))
+    }
+
+    public func listJobs() async throws -> JobListResponse {
+        try await client.jobs()
     }
 
     public func job(id: String) async throws -> JobStatus {

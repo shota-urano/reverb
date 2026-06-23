@@ -20,6 +20,91 @@ import Foundation
         #expect(model.health?.version == "0.6.0")
     }
 
+    // MARK: - 起動時のライブラリ復元（USL-95）
+
+    @Test func startRestoresPersistedProjects() async {
+        var client = MockBackendClient()
+        client.jobList = JobListResponse(items: [
+            JobSummary(projectId: "p_new", jobId: "j_new", status: .running,
+                       createdAt: "2026-06-21T10:00:00+00:00", duration: 30,
+                       videoPath: "/Movies/new.mp4", language: nil, currentStage: .tts),
+            JobSummary(projectId: "p_old", jobId: "j_old", status: .done,
+                       createdAt: "2026-06-19T10:00:00+00:00", duration: 12.5,
+                       videoPath: "/Movies/old lecture.mp4", language: "en", currentStage: nil),
+        ])
+        let model = AppModel(launcher: MockSidecarLauncher(), clientFactory: { [client] _ in client })
+
+        await model.start()
+
+        #expect(model.connection == .ready)
+        #expect(model.libraryLoadError == nil)
+        #expect(model.projects.count == 2)
+        // 新しい順を維持。タイトルは videoPath のファイル名（拡張子除く）から導出。
+        #expect(model.projects.first?.id == "p_new")
+        #expect(model.projects.first?.title == "new")
+        #expect(model.projects.first?.state == .running)
+        #expect(model.projects.last?.title == "old lecture")
+        #expect(model.projects.last?.duration == 12.5)
+        // 完了プロジェクトを行から開くとプレーヤー（既存導線がそのまま機能）。
+        #expect(model.sourcePath(for: "p_old") == "/Movies/old lecture.mp4")
+        if let row = model.projects.last {
+            model.open(row)
+            #expect(model.playerJobId == "j_old")
+            #expect(model.selection == .library)
+        }
+    }
+
+    @Test func startParsesFractionalSecondTimestamps() async {
+        // backend は datetime.now(timezone.utc).isoformat()（小数秒付き）を出す。distantPast に落ちないこと。
+        var client = MockBackendClient()
+        client.jobList = JobListResponse(items: [
+            JobSummary(projectId: "p1", jobId: "j1", status: .done,
+                       createdAt: "2026-06-23T06:45:56.448757+00:00", duration: 1,
+                       videoPath: "/Movies/v.mp4", language: nil, currentStage: nil),
+        ])
+        let model = AppModel(launcher: MockSidecarLauncher(), clientFactory: { [client] _ in client })
+
+        await model.start()
+
+        #expect(model.projects.count == 1)
+        #expect(model.projects.first?.updatedAt != .distantPast)
+        // 2026-06-23T06:45:56Z 近傍であること（小数秒が正しく解釈されている）。
+        let expected = Date(timeIntervalSince1970: 1_782_197_156) // 2026-06-23T06:45:56Z
+        #expect(abs((model.projects.first?.updatedAt ?? .distantPast).timeIntervalSince(expected)) < 1.0)
+    }
+
+    @Test func startKeepsConnectionWhenListFails() async {
+        var client = MockBackendClient()
+        client.jobsError = .invalidResponse
+        let model = AppModel(launcher: MockSidecarLauncher(), clientFactory: { [client] _ in client })
+
+        await model.start()
+
+        // 一覧取得失敗でも接続は維持し、一覧は空・落ちない。失敗は握りつぶさず保持。
+        #expect(model.connection == .ready)
+        #expect(model.projects.isEmpty)
+        #expect(model.libraryLoadError != nil)
+    }
+
+    @Test func restoredProjectsDeduplicateAgainstSessionCreated() async {
+        // セッション内で作成済みの projectId は、再接続時の復元でも重複させずセッション側を優先する。
+        var client = MockBackendClient()
+        client.jobList = JobListResponse(items: [
+            JobSummary(projectId: "pA", jobId: "j_remote", status: .done,
+                       createdAt: "2026-06-19T10:00:00+00:00", duration: 5,
+                       videoPath: "/Movies/remoteA.mp4", language: nil, currentStage: nil),
+        ])
+        let model = AppModel(launcher: MockSidecarLauncher(), clientFactory: { [client] _ in client })
+        model.didCreateJob(CreateJobResponse(jobId: "j_session", projectId: "pA", status: .running),
+                           title: "sessionA", sourcePath: "/Movies/sessionA.mp4")
+
+        await model.start()
+
+        #expect(model.projects.count == 1)
+        #expect(model.projects.first?.title == "sessionA") // セッション側を優先
+        #expect(model.sourcePath(for: "pA") == "/Movies/sessionA.mp4")
+    }
+
     @Test func startFailsWhenLauncherErrors() async {
         var launcher = MockSidecarLauncher()
         launcher.error = .notConfigured

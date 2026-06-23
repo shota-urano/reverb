@@ -53,6 +53,28 @@ import Foundation
         #expect(status.error == nil)
     }
 
+    @Test func decodeJobList() throws {
+        // backend tests/test_jobs_list.py の実 JSON（GET /jobs）をそのままデコードできること。
+        let json = """
+        {"items":[
+          {"projectId":"p_new","jobId":"j_new","status":"running",
+           "createdAt":"2026-06-21T10:00:00+00:00","duration":30.0,
+           "videoPath":"/tmp/new.mp4","language":null,"currentStage":"tts"},
+          {"projectId":"p_old","jobId":"j_old","status":"done",
+           "createdAt":"2026-06-19T10:00:00+00:00","duration":12.5,
+           "videoPath":"/tmp/old.mp4","language":"en","currentStage":null}]}
+        """
+        let list = try decoder.decode(JobListResponse.self, from: Data(json.utf8))
+        #expect(list.items.count == 2)
+        #expect(list.items.first?.projectId == "p_new") // 新しい順
+        #expect(list.items.first?.status == .running)
+        #expect(list.items.first?.currentStage == .tts)
+        #expect(list.items.first?.language == nil) // 自動判定（null）
+        #expect(list.items.last?.language == "en")
+        #expect(list.items.last?.currentStage == nil)
+        #expect(list.items.last?.duration == 12.5)
+    }
+
     @Test func decodeJobResult() throws {
         let json = """
         {"projectId":"p_1","videoPath":"/m/lecture.mp4","voiceoverPath":"/p/voiceover.wav",
