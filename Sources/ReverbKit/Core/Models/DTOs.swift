@@ -23,25 +23,25 @@ public struct DependencyStatus: Codable, Sendable, Equatable {
     public let ffmpeg: Bool
     public let mlxWhisper: Bool
     public let ollama: Bool
-    public let voicevox: Bool
+    public let tts: Bool
 
     enum CodingKeys: String, CodingKey {
         case ffmpeg
         case mlxWhisper = "mlx_whisper"
         case ollama
-        case voicevox
+        case tts
     }
 
-    public init(ffmpeg: Bool, mlxWhisper: Bool, ollama: Bool, voicevox: Bool) {
+    public init(ffmpeg: Bool, mlxWhisper: Bool, ollama: Bool, tts: Bool) {
         self.ffmpeg = ffmpeg
         self.mlxWhisper = mlxWhisper
         self.ollama = ollama
-        self.voicevox = voicevox
+        self.tts = tts
     }
 
     /// 全エンジンが利用可能か。緑表示（LocalOnlyStatus）の判定に使う。
     public var allAvailable: Bool {
-        ffmpeg && mlxWhisper && ollama && voicevox
+        ffmpeg && mlxWhisper && ollama && tts
     }
 }
 

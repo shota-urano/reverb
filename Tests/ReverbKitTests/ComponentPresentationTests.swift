@@ -114,9 +114,9 @@ import Foundation
     // MARK: - DependencyCatalog（固定順・対応エンジン）
 
     @Test func dependencyCatalogOrderAndMapping() {
-        let status = DependencyStatus(ffmpeg: true, mlxWhisper: false, ollama: true, voicevox: false)
+        let status = DependencyStatus(ffmpeg: true, mlxWhisper: false, ollama: true, tts: false)
         let items = DependencyCatalog.items(from: status)
-        #expect(items.map(\.name) == ["ffmpeg", "mlx-whisper", "Ollama", "VOICEVOX"])
+        #expect(items.map(\.name) == ["ffmpeg", "mlx-whisper", "Ollama", "TTS"])
         #expect(items.map(\.available) == [true, false, true, false])
     }
 

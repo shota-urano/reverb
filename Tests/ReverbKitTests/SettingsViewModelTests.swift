@@ -71,7 +71,7 @@ import Foundation
         var repo = StubModelRepository()
         repo.healthResponse = HealthResponse(
             status: "ok", version: "0.6.0",
-            dependencies: DependencyStatus(ffmpeg: true, mlxWhisper: false, ollama: false, voicevox: false)
+            dependencies: DependencyStatus(ffmpeg: true, mlxWhisper: false, ollama: false, tts: false)
         )
         // 該当エンジンが落ちていると /models /speakers も失敗しうる。
         repo.modelsError = .invalidResponse

@@ -156,8 +156,8 @@ public struct SettingsView: View {
             settingRow(
                 label: "話者",
                 disabled: !viewModel.ttsAvailable,
-                disabledNote: viewModel.health?.dependencies.voicevox == false
-                    ? "VOICEVOX が未接続のため変更できません。"
+                disabledNote: viewModel.health?.dependencies.tts == false
+                    ? "TTS エンジンが未接続のため変更できません。"
                     : "話者一覧を取得できませんでした。再読込してください。"
             ) {
                 if viewModel.speakers.isEmpty {
