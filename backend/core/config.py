@@ -8,6 +8,11 @@ from typing import Dict
 from core.net import validate_loopback_host, validate_loopback_url
 
 
+DEFAULT_STT_PROGRESS_RTF_ESTIMATE = 0.5
+DEFAULT_STT_PROGRESS_MAX_FRACTION = 0.95
+DEFAULT_STT_PROGRESS_INTERVAL_SECONDS = 0.25
+
+
 @dataclass(frozen=True)
 class BackendConfig:
     version: str = "0.6.0"
@@ -51,6 +56,25 @@ class BackendConfig:
     # 導入時に最新タグ確認: https://huggingface.co/mlx-community
     # REVERB_STT_MODEL_REPOS="large-v3=mlx-community/whisper-large-v3-mlx,..." で上書き可。
     stt_model_repos: Dict[str, str] = field(default_factory=lambda: _stt_model_repos())
+    # Adjust after real-world measurement on Apple Silicon.
+    stt_progress_rtf_estimate: float = field(
+        default_factory=lambda: _env_float(
+            "REVERB_STT_PROGRESS_RTF_ESTIMATE",
+            DEFAULT_STT_PROGRESS_RTF_ESTIMATE,
+        )
+    )
+    stt_progress_max_fraction: float = field(
+        default_factory=lambda: _env_float(
+            "REVERB_STT_PROGRESS_MAX_FRACTION",
+            DEFAULT_STT_PROGRESS_MAX_FRACTION,
+        )
+    )
+    stt_progress_interval_seconds: float = field(
+        default_factory=lambda: _env_float(
+            "REVERB_STT_PROGRESS_INTERVAL_SECONDS",
+            DEFAULT_STT_PROGRESS_INTERVAL_SECONDS,
+        )
+    )
     # NOTE: confirm latest model tag at install time. モデル名は設定値としてのみ扱う。
     default_translate_model: str = field(
         default_factory=lambda: os.getenv("REVERB_TRANSLATE_MODEL", "qwen3:30b-a3b")
@@ -137,6 +161,12 @@ class BackendConfig:
             raise ValueError("REVERB_EXTRACT_CODEC must not be empty")
         if self.translate_timeout_seconds <= 0:
             raise ValueError("REVERB_TRANSLATE_TIMEOUT_SECONDS must be greater than 0")
+        if self.stt_progress_rtf_estimate <= 0:
+            raise ValueError("REVERB_STT_PROGRESS_RTF_ESTIMATE must be greater than 0")
+        if self.stt_progress_max_fraction <= 0 or self.stt_progress_max_fraction >= 1:
+            raise ValueError("REVERB_STT_PROGRESS_MAX_FRACTION must be in the range (0.0, 1.0)")
+        if self.stt_progress_interval_seconds <= 0:
+            raise ValueError("REVERB_STT_PROGRESS_INTERVAL_SECONDS must be greater than 0")
         if not self.ollama_keep_alive:
             raise ValueError("REVERB_OLLAMA_KEEP_ALIVE must not be empty")
         if self.translate_max_retries < 0:
@@ -176,6 +206,9 @@ class BackendConfig:
             default_stt_engine=self.default_stt_engine,
             default_stt_model=self.default_stt_model,
             stt_model_repos=self.stt_model_repos,
+            stt_progress_rtf_estimate=self.stt_progress_rtf_estimate,
+            stt_progress_max_fraction=self.stt_progress_max_fraction,
+            stt_progress_interval_seconds=self.stt_progress_interval_seconds,
             default_translate_model=self.default_translate_model,
             translate_timeout_seconds=self.translate_timeout_seconds,
             ollama_keep_alive=self.ollama_keep_alive,
