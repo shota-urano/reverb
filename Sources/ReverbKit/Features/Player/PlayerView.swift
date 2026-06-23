@@ -27,7 +27,9 @@ public struct PlayerView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: ReverbTheme.Metrics.sectionSpacing) {
             header
+            // 再生レイアウトに縦スペースを譲る（末尾 Spacer に奪われないよう優先度を上げる・USL-89）。
             content
+                .layoutPriority(1)
             Spacer(minLength: 0)
         }
         .padding(ReverbTheme.Metrics.contentPadding)
@@ -171,7 +173,9 @@ public struct PlayerView: View {
 
     private var playbackLayout: some View {
         VStack(alignment: .leading, spacing: ReverbTheme.Metrics.sectionSpacing) {
+            // 動画面に縦スペースを最優先で割り当て、コントロール・下段パネルは固有高を保つ（USL-89）。
             playerSurface
+                .layoutPriority(1)
             transportControls
             if viewModel.subtitleUnavailable {
                 // 字幕のみ欠落: 動画・音声は再生し、字幕エラーを明示（08 §エラー）。
@@ -182,13 +186,17 @@ public struct PlayerView: View {
             }
             bottomPanels
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     /// 16:9 の動画面。字幕は下部中央に重ね、再生コントロールとは別段に置く（§5.6）。
+    ///
+    /// 黒背景・角丸・字幕オーバーレイは **16:9 枠にフィットさせてから** 透明な伸縮フレームで
+    /// 中央寄せする。背景を `.frame(maxWidth:.infinity)` の外側に塗らないことで、横長の黒帯を出さない
+    /// （USL-89）。`maxHeight: .infinity` と `layoutPriority` で縦スペースを最優先に取り、動画を大きく出す。
     private var playerSurface: some View {
         VideoSurface(player: coordinator.videoPlayer)
-            .aspectRatio(16.0 / 9.0, contentMode: .fit)
-            .frame(maxWidth: .infinity)
+            .aspectRatio(ReverbTheme.Player.videoAspectRatio, contentMode: .fit)
             .background(ReverbTheme.Palette.videoSurface)
             .clipShape(RoundedRectangle(cornerRadius: ReverbTheme.Radius.player))
             .overlay(alignment: .bottom) {
@@ -197,6 +205,7 @@ public struct PlayerView: View {
                     .padding(.horizontal, 24)
                     .allowsHitTesting(false)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .accessibilityElement(children: .contain)
             .accessibilityLabel("動画プレーヤー")
     }
