@@ -20,6 +20,21 @@ class CreateJobResponse(BaseModel):
     status: JobState
 
 
+class JobSummary(BaseModel):
+    projectId: str
+    jobId: str
+    status: JobState
+    createdAt: str
+    duration: float
+    videoPath: str
+    language: Optional[str]
+    currentStage: Optional[StageName]
+
+
+class JobListResponse(BaseModel):
+    items: List[JobSummary]
+
+
 class StageProgress(BaseModel):
     name: StageName
     status: StageState
