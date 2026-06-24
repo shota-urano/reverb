@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// プロジェクト行の表示モデル（design-system §5.3）。
 ///
@@ -21,6 +22,10 @@ public struct ProjectRowData: Identifiable, Sendable, Equatable {
     public let sourceMissing: Bool
     /// 16:9 サムネイルのローカルパス（任意）。
     public let thumbnailPath: String?
+    /// サムネイル取得に使うジョブ ID（`GET /jobs/{jobId}/thumbnail` / USL-103）。
+    public let jobId: String
+    /// サムネイルが生成済みか（USL-100 の `hasThumbnail`）。偽なら取得せずプレースホルダ表示。
+    public let thumbnailAvailable: Bool
 
     public init(
         id: String,
@@ -32,7 +37,9 @@ public struct ProjectRowData: Identifiable, Sendable, Equatable {
         updatedAt: Date,
         state: JobState,
         sourceMissing: Bool = false,
-        thumbnailPath: String? = nil
+        thumbnailPath: String? = nil,
+        jobId: String = "",
+        thumbnailAvailable: Bool = false
     ) {
         self.id = id
         self.title = title
@@ -44,6 +51,8 @@ public struct ProjectRowData: Identifiable, Sendable, Equatable {
         self.state = state
         self.sourceMissing = sourceMissing
         self.thumbnailPath = thumbnailPath
+        self.jobId = jobId
+        self.thumbnailAvailable = thumbnailAvailable
     }
 }
 
@@ -59,19 +68,25 @@ public struct ProjectRow: View {
     private let onShowInfo: (() -> Void)?
     /// `…` メニュー: プロジェクトを削除（破壊的操作 / screens.md §1）。確認は呼び出し側で行う。
     private let onDelete: (() -> Void)?
+    /// サムネイル取得境界（USL-103）。nil（プレビュー・テスト）はプレースホルダ表示のまま。
+    private let thumbnailLoader: (any ThumbnailLoading)?
+    /// 取得済みサムネイル。nil の間はプレースホルダにフォールバックする。
+    @State private var thumbnailImage: NSImage?
 
     public init(
         data: ProjectRowData,
         onOpen: @escaping () -> Void,
         onShowInFinder: (() -> Void)? = nil,
         onShowInfo: (() -> Void)? = nil,
-        onDelete: (() -> Void)? = nil
+        onDelete: (() -> Void)? = nil,
+        thumbnailLoader: (any ThumbnailLoading)? = nil
     ) {
         self.data = data
         self.onOpen = onOpen
         self.onShowInFinder = onShowInFinder
         self.onShowInfo = onShowInfo
         self.onDelete = onDelete
+        self.thumbnailLoader = thumbnailLoader
     }
 
     public var body: some View {
@@ -105,11 +120,39 @@ public struct ProjectRow: View {
             .fill(ReverbTheme.Palette.videoSurface.opacity(0.85))
             .aspectRatio(16.0 / 9.0, contentMode: .fit)
             .frame(width: 160)
-            .overlay(
-                Image(systemName: "film")
-                    .foregroundStyle(.white.opacity(0.5))
-            )
+            .overlay { thumbnailContent }
+            // scaledToFill のはみ出しを角丸内にクリップし、既存の角丸スタイルを保つ。
+            .clipShape(RoundedRectangle(cornerRadius: ReverbTheme.Radius.thumbnail))
             .accessibilityHidden(true)
+            // 行ごと・非同期に取得。jobId が変わったら再取得（行の使い回しに追従）。
+            .task(id: data.jobId) { await loadThumbnail() }
+    }
+
+    /// 取得できていれば実画像、無ければ "film" プレースホルダ（screens.md §1）。
+    @ViewBuilder
+    private var thumbnailContent: some View {
+        if let thumbnailImage {
+            Image(nsImage: thumbnailImage)
+                .resizable()
+                .scaledToFill()
+        } else {
+            Image(systemName: "film")
+                .foregroundStyle(.white.opacity(0.5))
+        }
+    }
+
+    /// サムネイルを取得して表示する。生成済み（`thumbnailAvailable`）のときだけ取得し、無駄な 404 を避ける。
+    /// キャッシュ済みは即時反映してチラつきを防ぎ、取得失敗時はプレースホルダにフォールバックする。
+    private func loadThumbnail() async {
+        guard data.thumbnailAvailable, !data.jobId.isEmpty, let thumbnailLoader else {
+            thumbnailImage = nil
+            return
+        }
+        if let cached = thumbnailLoader.cachedImage(forJob: data.jobId) {
+            thumbnailImage = cached
+            return
+        }
+        thumbnailImage = await thumbnailLoader.image(forJob: data.jobId)
     }
 
     private var info: some View {

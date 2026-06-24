@@ -67,6 +67,8 @@ public final class AppModel {
     /// 接続後に構築される Repository。各画面 ViewModel はここから受け取る。
     public private(set) var jobRepository: (any JobRepository)?
     public private(set) var modelRepository: (any ModelRepository)?
+    /// ライブラリ行のサムネイル取得・キャッシュ（USL-103）。接続後に構築し、行へ注入する。
+    public private(set) var thumbnailProvider: ThumbnailProvider?
 
     // MARK: - 依存
 
@@ -114,7 +116,9 @@ public final class AppModel {
             }
             let client = clientFactory(handshake.baseURL)
             self.client = client
-            self.jobRepository = DefaultJobRepository(client: client)
+            let jobRepository = DefaultJobRepository(client: client)
+            self.jobRepository = jobRepository
+            self.thumbnailProvider = ThumbnailProvider(repository: jobRepository)
             let modelRepository = DefaultModelRepository(client: client)
             self.modelRepository = modelRepository
 
@@ -130,6 +134,7 @@ public final class AppModel {
             await launcher.terminate()
             client = nil
             jobRepository = nil
+            thumbnailProvider = nil
             modelRepository = nil
             health = nil
             connection = .failed(describe(error))
@@ -143,6 +148,7 @@ public final class AppModel {
         connection = .idle
         client = nil
         jobRepository = nil
+        thumbnailProvider = nil
         modelRepository = nil
     }
 
@@ -194,7 +200,9 @@ public final class AppModel {
             duration: 0,
             sourceLanguage: nil,
             updatedAt: Date(),
-            state: response.status
+            state: response.status,
+            jobId: response.jobId,
+            thumbnailAvailable: false // 生成前。完了後に GET /jobs で hasThumbnail が立つ。
         )
         records.removeAll { $0.row.id == response.projectId }
         records.insert(ProjectRecord(row: row, jobId: response.jobId, sourcePath: sourcePath), at: 0)
@@ -239,7 +247,9 @@ public final class AppModel {
             updatedAt: Date(),
             state: state,
             sourceMissing: old.sourceMissing,
-            thumbnailPath: old.thumbnailPath
+            thumbnailPath: old.thumbnailPath,
+            jobId: old.jobId,
+            thumbnailAvailable: old.thumbnailAvailable
         )
     }
 
@@ -293,7 +303,9 @@ public final class AppModel {
             duration: summary.duration,
             sourceLanguage: summary.language,
             updatedAt: parseTimestamp(summary.createdAt),
-            state: summary.status
+            state: summary.status,
+            jobId: summary.jobId,
+            thumbnailAvailable: summary.hasThumbnail
         )
         return ProjectRecord(row: row, jobId: summary.jobId, sourcePath: summary.videoPath)
     }
@@ -328,6 +340,7 @@ public final class AppModel {
         connection = .failed("バックエンドが予期せず終了しました（コード \(status)）")
         client = nil
         jobRepository = nil
+        thumbnailProvider = nil
         modelRepository = nil
     }
 

@@ -11,6 +11,9 @@ public protocol JobRepository: Sendable {
     /// プロジェクト削除（`DELETE /jobs/{id}` / USL-99）。実行中は backend が 409 で拒否するため失敗を投げる。
     func deleteJob(id: String) async throws
     func result(id: String) async throws -> JobResult
+    /// サムネイル画像バイナリ（`GET /jobs/{id}/thumbnail` / USL-103）。未生成は backend が 404 を返す。
+    /// 一覧の `hasThumbnail` が真のものだけ呼び、無駄な 404 を避ける。
+    func thumbnail(jobId: String) async throws -> Data
     /// 進捗ストリーム（SSE）。ポーリングのフォールバックは ViewModel 側で選択する。
     func events(id: String) -> AsyncThrowingStream<JobEvent, Error>
 }
@@ -45,6 +48,10 @@ public struct DefaultJobRepository: JobRepository {
 
     public func result(id: String) async throws -> JobResult {
         try await client.jobResult(id: id)
+    }
+
+    public func thumbnail(jobId: String) async throws -> Data {
+        try await client.thumbnail(jobId: jobId)
     }
 
     public func events(id: String) -> AsyncThrowingStream<JobEvent, Error> {

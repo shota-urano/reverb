@@ -27,10 +27,12 @@ import Foundation
         client.jobList = JobListResponse(items: [
             JobSummary(projectId: "p_new", jobId: "j_new", status: .running,
                        createdAt: "2026-06-21T10:00:00+00:00", duration: 30,
-                       videoPath: "/Movies/new.mp4", language: nil, currentStage: .tts),
+                       videoPath: "/Movies/new.mp4", language: nil, currentStage: .tts,
+                       hasThumbnail: false),
             JobSummary(projectId: "p_old", jobId: "j_old", status: .done,
                        createdAt: "2026-06-19T10:00:00+00:00", duration: 12.5,
-                       videoPath: "/Movies/old lecture.mp4", language: "en", currentStage: nil),
+                       videoPath: "/Movies/old lecture.mp4", language: "en", currentStage: nil,
+                       hasThumbnail: true),
         ])
         let model = AppModel(launcher: MockSidecarLauncher(), clientFactory: { [client] _ in client })
 
@@ -38,11 +40,16 @@ import Foundation
 
         #expect(model.connection == .ready)
         #expect(model.libraryLoadError == nil)
+        #expect(model.thumbnailProvider != nil) // 接続後にサムネイル取得境界が構築される（USL-103）
         #expect(model.projects.count == 2)
         // 新しい順を維持。タイトルは videoPath のファイル名（拡張子除く）から導出。
         #expect(model.projects.first?.id == "p_new")
         #expect(model.projects.first?.title == "new")
         #expect(model.projects.first?.state == .running)
+        // hasThumbnail が行へ反映される（生成前=false / 生成済み=true）。
+        #expect(model.projects.first?.thumbnailAvailable == false)
+        #expect(model.projects.first?.jobId == "j_new")
+        #expect(model.projects.last?.thumbnailAvailable == true)
         #expect(model.projects.last?.title == "old lecture")
         #expect(model.projects.last?.duration == 12.5)
         // 完了プロジェクトを行から開くとプレーヤー（既存導線がそのまま機能）。

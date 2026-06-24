@@ -142,6 +142,9 @@ public struct JobSummary: Codable, Sendable, Equatable, Identifiable {
     public let language: String?
     /// 進行中の工程（完了・未着手は null）。
     public let currentStage: StageName?
+    /// サムネイル生成済みか（`GET /jobs/{id}/thumbnail` が 200 を返せるか / USL-100,103）。
+    /// 一覧の存在判定に使い、無駄な 404 リクエストを避ける。
+    public let hasThumbnail: Bool
 
     public var id: String { projectId }
 
@@ -153,7 +156,8 @@ public struct JobSummary: Codable, Sendable, Equatable, Identifiable {
         duration: Double,
         videoPath: String,
         language: String?,
-        currentStage: StageName?
+        currentStage: StageName?,
+        hasThumbnail: Bool = false
     ) {
         self.projectId = projectId
         self.jobId = jobId
@@ -163,6 +167,7 @@ public struct JobSummary: Codable, Sendable, Equatable, Identifiable {
         self.videoPath = videoPath
         self.language = language
         self.currentStage = currentStage
+        self.hasThumbnail = hasThumbnail
     }
 }
 

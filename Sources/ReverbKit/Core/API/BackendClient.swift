@@ -17,6 +17,9 @@ public protocol BackendClient: Sendable {
     /// 実行中（queued/running）は backend が 409 で拒否するため、失敗は握り潰さず投げる。
     func deleteJob(id: String) async throws
     func jobResult(id: String) async throws -> JobResult
+    /// サムネイル画像バイナリ（`GET /jobs/{id}/thumbnail` / USL-100,103）。未生成は backend が 404 を返す。
+    /// 呼び出し側は一覧の `hasThumbnail` で存在判定し、無駄な 404 を避ける。
+    func thumbnail(jobId: String) async throws -> Data
     /// 進捗 SSE（`GET /jobs/{id}/events`）。ポーリングのフォールバックは Repository 側で選択する。
     func events(jobId: String) -> AsyncThrowingStream<JobEvent, Error>
     /// アプリ終了時の安全停止（`POST /shutdown`）。失敗しても投げない。
@@ -73,6 +76,12 @@ public final class HTTPBackendClient: BackendClient {
 
     public func jobResult(id: String) async throws -> JobResult {
         try await get("jobs/\(id)/result")
+    }
+
+    public func thumbnail(jobId: String) async throws -> Data {
+        var request = URLRequest(url: url(for: "jobs/\(jobId)/thumbnail"))
+        request.httpMethod = "GET"
+        return try await sendData(request)
     }
 
     public func shutdown() async {
@@ -214,6 +223,26 @@ public final class HTTPBackendClient: BackendClient {
         } catch {
             throw BackendError.decoding(error.localizedDescription)
         }
+    }
+
+    /// JSON ではなく生バイナリ（画像等）を取得する。デコードは行わずボディをそのまま返す。
+    private func sendData(_ request: URLRequest) async throws -> Data {
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw BackendError.transport(error.localizedDescription)
+        }
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendError.invalidResponse
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw BackendError.http(statusCode: http.statusCode)
+        }
+        return data
     }
 }
 
