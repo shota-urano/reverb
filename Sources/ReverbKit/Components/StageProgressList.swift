@@ -50,12 +50,28 @@ struct StageProgressRow: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// 工程の状態アイコン。running 中は循環矢印をゆっくり回して進行を示す
+    /// （表示リフレッシュ同期で確実に回す）。Reduce Motion 時は静止（§7）。
+    @ViewBuilder private var stageIcon: some View {
+        let icon = Image(systemName: stage.status.systemImage)
+            .foregroundStyle(stage.status.role.color)
+            .imageScale(.large)
+            .frame(width: 24)
+        if stage.status == .running && !reduceMotion {
+            TimelineView(.animation) { context in
+                let t = context.date.timeIntervalSinceReferenceDate
+                let period = 2.6 // 1回転の秒数（大きいほどゆっくり）
+                let angle = (t.truncatingRemainder(dividingBy: period) / period) * 360.0
+                icon.rotationEffect(.degrees(angle))
+            }
+        } else {
+            icon
+        }
+    }
+
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: stage.status.systemImage)
-                .foregroundStyle(stage.status.role.color)
-                .imageScale(.large)
-                .frame(width: 24)
+            stageIcon
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(stage.name.displayName)

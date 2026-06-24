@@ -39,7 +39,7 @@ public final class ProcessingViewModel {
     public init(
         jobRepository: (any JobRepository)?,
         modelRepository: (any ModelRepository)?,
-        pollInterval: Duration = .seconds(2)
+        pollInterval: Duration = .seconds(1)
     ) {
         self.jobRepository = jobRepository
         self.modelRepository = modelRepository
@@ -83,12 +83,24 @@ public final class ProcessingViewModel {
         if await refresh(jobRepository, jobId) { return }
         if Task.isCancelled { return }
 
-        // 2) SSE で進捗を更新。終了せず stream が閉じたらポーリングへ。
-        let sawDone = await streamEvents(jobRepository, jobId)
-        if sawDone || Task.isCancelled { return }
-
-        // 3) ポーリングで終了状態まで追う。
-        await pollUntilTerminal(jobRepository, jobId)
+        // 2) SSE（低遅延）とポーリング（確実性）を並行実行する。
+        //    SSE は環境によりイベントが届かないことがあるため、ポーリングを常時の
+        //    更新基盤とし、SSE は届けば即時反映する上乗せとする。どちらの更新も
+        //    @MainActor 上の apply 経由なので競合しない。終了状態はポーリングが確定する。
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { [weak self] in
+                guard let self else { return }
+                _ = await self.streamEvents(jobRepository, jobId)
+            }
+            group.addTask { [weak self] in
+                guard let self else { return }
+                await self.pollUntilTerminal(jobRepository, jobId)
+            }
+            // いずれかが完了（ポーリングが終了状態を確定 or SSE が done 受信）したら
+            // 残りを止める。
+            await group.next()
+            group.cancelAll()
+        }
     }
 
     /// キャンセルを要求する（確認ダイアログ確定後に呼ぶ / screens.md §2）。

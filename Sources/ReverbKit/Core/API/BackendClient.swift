@@ -98,7 +98,11 @@ public final class HTTPBackendClient: BackendClient {
         let session = self.session
         let decoder = self.decoder
         return AsyncThrowingStream { continuation in
-            let task = Task {
+            // 重要: SSE のバイト処理は呼び出し元（MainActor の ViewModel）の
+            // アクター隔離を継承させない。`Task {}` は生成箇所のアクターを継承するため、
+            // MainActor 上で `URLSession.bytes` のストリームを回すと配信が滞り、
+            // 進捗が画面に反映されない。`Task.detached` でグローバル executor に逃がす。
+            let task = Task.detached {
                 do {
                     var request = URLRequest(url: url)
                     request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
