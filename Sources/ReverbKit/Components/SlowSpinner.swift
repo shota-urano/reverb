@@ -10,6 +10,8 @@ import SwiftUI
 /// リフレッシュに同期して毎フレーム再描画するこの方式を採る。`period` が1回転の
 /// 秒数（大きいほどゆっくり）。
 public struct SlowSpinner: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     private let size: CGFloat
     private let lineWidth: CGFloat
     private let period: Double
@@ -21,17 +23,28 @@ public struct SlowSpinner: View {
     }
 
     public var body: some View {
-        TimelineView(.animation) { context in
-            let t = context.date.timeIntervalSinceReferenceDate
-            let angle = (t.truncatingRemainder(dividingBy: period) / period) * 360.0
-            Circle()
-                .trim(from: 0, to: 0.72)
-                .stroke(style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
-                .foregroundStyle(.secondary)
-                .frame(width: size, height: size)
-                .rotationEffect(.degrees(angle))
+        Group {
+            if reduceMotion {
+                // Reduce Motion 時は回さず静止（§7）。進捗の意味は周辺テキスト/値が担う。
+                arc(angle: 0)
+            } else {
+                TimelineView(.animation) { context in
+                    let t = context.date.timeIntervalSinceReferenceDate
+                    let angle = (t.truncatingRemainder(dividingBy: period) / period) * 360.0
+                    arc(angle: angle)
+                }
+            }
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true) // 進捗の意味は周辺テキスト/値が担う
+    }
+
+    private func arc(angle: Double) -> some View {
+        Circle()
+            .trim(from: 0, to: 0.72)
+            .stroke(style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+            .foregroundStyle(.secondary)
+            .frame(width: size, height: size)
+            .rotationEffect(.degrees(angle))
     }
 }

@@ -87,19 +87,23 @@ public final class ProcessingViewModel {
         //    SSE は環境によりイベントが届かないことがあるため、ポーリングを常時の
         //    更新基盤とし、SSE は届けば即時反映する上乗せとする。どちらの更新も
         //    @MainActor 上の apply 経由なので競合しない。終了状態はポーリングが確定する。
-        await withTaskGroup(of: Void.self) { group in
+        await withTaskGroup(of: Bool.self) { group in
             group.addTask { [weak self] in
-                guard let self else { return }
-                _ = await self.streamEvents(jobRepository, jobId)
+                guard let self else { return false }
+                return await self.streamEvents(jobRepository, jobId)
             }
             group.addTask { [weak self] in
-                guard let self else { return }
-                await self.pollUntilTerminal(jobRepository, jobId)
+                guard let self else { return false }
+                return await self.pollUntilTerminal(jobRepository, jobId)
             }
-            // いずれかが完了（ポーリングが終了状態を確定 or SSE が done 受信）したら
-            // 残りを止める。
-            await group.next()
-            group.cancelAll()
+            // 子の戻り値は「終了状態に達したか」。SSE が done 無しで閉じても（false）
+            // ポーリングは止めず継続する。どちらかが終了状態を確定したら残りを止める。
+            while let reachedTerminal = await group.next() {
+                if reachedTerminal {
+                    group.cancelAll()
+                    return
+                }
+            }
         }
     }
 
@@ -143,15 +147,17 @@ public final class ProcessingViewModel {
     }
 
     /// 終了状態に達するまで一定間隔でスナップショットを取り続ける。
-    private func pollUntilTerminal(_ repo: any JobRepository, _ jobId: String) async {
+    /// 終了状態を確定したら true、キャンセルで打ち切ったら false。
+    private func pollUntilTerminal(_ repo: any JobRepository, _ jobId: String) async -> Bool {
         while !Task.isCancelled {
-            if await refresh(repo, jobId) { return }
+            if await refresh(repo, jobId) { return true }
             do {
                 try await Task.sleep(for: pollInterval)
             } catch {
-                return // キャンセル
+                return false // キャンセル
             }
         }
+        return false
     }
 
     /// スナップショットを1回取得して反映する。終了状態なら true。

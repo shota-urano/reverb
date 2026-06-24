@@ -58,7 +58,7 @@ gh api repos/{owner}/{repo}/pulls/<PR#>/comments --paginate \
 
 **frontend の場合（Claude 実装）**: Claude が該当 Swift を外科的に修正し、`swift build` 等で確認する。
 
-> 同じ失敗を 2 回以上繰り返す／難バグなら `codex:rescue` に第二診断を委譲する（グローバル規律）。
+> 同じ失敗を 2 回以上繰り返す／難バグなら `codex:codex-rescue` に第二診断を委譲する（グローバル規律）。
 
 ### 4. 成果を検証（推測で「直った」と言わない）
 
@@ -74,7 +74,7 @@ gh api repos/{owner}/{repo}/pulls/<PR#>/comments --paginate \
 
 - **この対応で変更したファイルのみ** stage する（他者変更を巻き込まない）。
 - commit メッセージ例: `fix(USL-XX): CodeRabbit レビュー指摘に対応（要旨）`。本文に対応概要（修正/スキップ）とテスト結果。backend は「実装: Codex（委譲）／検証: Claude」を明記。末尾トレーラ必須:
-  ```
+  ```text
   Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
   ```
 - `git push`（既存 PR ブランチへ）。
