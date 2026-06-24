@@ -307,40 +307,27 @@ public struct PlayerView: View {
         window.toggleFullScreen(nil)
     }
 
-    // MARK: - 下段（完了工程・オーディオバランス）
+    // MARK: - 下段（オーディオバランス）
 
+    /// 再生段階では全工程が完了済みで「完了した工程」一覧は固定表示にすぎず情報価値がないため非表示
+    /// （USL-101）。下段はオーディオバランスのみを左寄せで置き、全幅への間延びを抑える。
     private var bottomPanels: some View {
-        HStack(alignment: .top, spacing: ReverbTheme.Metrics.sectionSpacing) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("完了した工程")
-                    .font(.title3.weight(.semibold))
-                    .accessibilityAddTraits(.isHeader)
-                StageProgressList(stages: completedStages)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            VStack(alignment: .leading, spacing: 12) {
-                Text("オーディオバランス")
-                    .font(.title3.weight(.semibold))
-                    .accessibilityAddTraits(.isHeader)
-                AudioBalanceControl(
-                    japaneseVolume: Binding(
-                        get: { viewModel.japaneseVolume },
-                        set: { viewModel.setJapaneseVolume($0) }
-                    ),
-                    originalVolume: Binding(
-                        get: { viewModel.originalVolume },
-                        set: { viewModel.setOriginalVolume($0) }
-                    )
+        VStack(alignment: .leading, spacing: 12) {
+            Text("オーディオバランス")
+                .font(.title3.weight(.semibold))
+                .accessibilityAddTraits(.isHeader)
+            AudioBalanceControl(
+                japaneseVolume: Binding(
+                    get: { viewModel.japaneseVolume },
+                    set: { viewModel.setJapaneseVolume($0) }
+                ),
+                originalVolume: Binding(
+                    get: { viewModel.originalVolume },
+                    set: { viewModel.setOriginalVolume($0) }
                 )
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            )
         }
-    }
-
-    /// 完了プロジェクトの6工程はすべて done（§3「完了した6工程」）。固定順は StageProgressList が保証。
-    private var completedStages: [StageProgress] {
-        StageName.allCases.map { StageProgress(name: $0, status: .done, progress: 1) }
+        .frame(maxWidth: 560, alignment: .leading)
     }
 
     // MARK: - 共通の通知カード
