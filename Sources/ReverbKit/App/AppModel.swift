@@ -68,7 +68,8 @@ public final class AppModel {
     public private(set) var jobRepository: (any JobRepository)?
     public private(set) var modelRepository: (any ModelRepository)?
     /// ライブラリ行のサムネイル取得・キャッシュ（USL-103）。接続後に構築し、行へ注入する。
-    public private(set) var thumbnailProvider: ThumbnailProvider?
+    /// 他の Repository と同じく protocol 境界で公開し、テストでモックに差し替えられるようにする。
+    public private(set) var thumbnailProvider: (any ThumbnailLoading)?
 
     // MARK: - 依存
 
@@ -249,7 +250,10 @@ public final class AppModel {
             sourceMissing: old.sourceMissing,
             thumbnailPath: old.thumbnailPath,
             jobId: old.jobId,
-            thumbnailAvailable: old.thumbnailAvailable
+            // 完了時はサムネイルが生成済み（extract 工程で best-effort 生成）なので取得対象にする。
+            // セッション内完了でも再起動・一覧再取得を待たず即表示できる。生成失敗時は行が 404→
+            // プレースホルダへフォールバックするため optimistic に true で安全。
+            thumbnailAvailable: state == .done ? true : old.thumbnailAvailable
         )
     }
 

@@ -195,7 +195,9 @@ public final class HTTPBackendClient: BackendClient {
         return try await send(request)
     }
 
-    private func send<T: Decodable>(_ request: URLRequest) async throws -> T {
+    /// リクエスト送信＋応答取り出しの共通処理。キャンセル伝播・transport/invalidResponse マッピングを集約する。
+    /// ステータス判定・デコードは呼び出し側の責務（JSON とバイナリで分岐するため）。
+    private func perform(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         let data: Data
         let response: URLResponse
         do {
@@ -208,6 +210,11 @@ public final class HTTPBackendClient: BackendClient {
         guard let http = response as? HTTPURLResponse else {
             throw BackendError.invalidResponse
         }
+        return (data, http)
+    }
+
+    private func send<T: Decodable>(_ request: URLRequest) async throws -> T {
+        let (data, http) = try await perform(request)
         guard (200..<300).contains(http.statusCode) else {
             // エラーボディを解釈できればコード付きで投げる。
             if let envelope = try? decoder.decode(BackendErrorResponse.self, from: data) {
@@ -227,18 +234,7 @@ public final class HTTPBackendClient: BackendClient {
 
     /// JSON ではなく生バイナリ（画像等）を取得する。デコードは行わずボディをそのまま返す。
     private func sendData(_ request: URLRequest) async throws -> Data {
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await session.data(for: request)
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            throw BackendError.transport(error.localizedDescription)
-        }
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendError.invalidResponse
-        }
+        let (data, http) = try await perform(request)
         guard (200..<300).contains(http.statusCode) else {
             throw BackendError.http(statusCode: http.statusCode)
         }

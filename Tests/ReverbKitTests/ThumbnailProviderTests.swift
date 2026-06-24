@@ -39,18 +39,23 @@ struct ThumbnailProviderTests {
     }
 
     /// 1x1 の PNG バイト列（NSImage 化できる最小の実画像）。
+    /// 非推奨の lockFocus/unlockFocus を避け、ビットマップ表現から直接 PNG 化する。
     static func pngData() -> Data {
-        let image = NSImage(size: NSSize(width: 1, height: 1))
-        image.lockFocus()
-        NSColor.black.setFill()
-        NSRect(x: 0, y: 0, width: 1, height: 1).fill()
-        image.unlockFocus()
-        guard let tiff = image.tiffRepresentation,
-              let rep = NSBitmapImageRep(data: tiff),
-              let png = rep.representation(using: .png, properties: [:]) else {
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: 1,
+            pixelsHigh: 1,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 4,
+            bitsPerPixel: 32
+        ) else {
             return Data()
         }
-        return png
+        return rep.representation(using: .png, properties: [:]) ?? Data()
     }
 }
 

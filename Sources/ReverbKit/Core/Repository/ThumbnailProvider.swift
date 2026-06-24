@@ -18,24 +18,27 @@ public protocol ThumbnailLoading: AnyObject {
 /// `JobRepository` 経由でサムネイルを取得し、メモリにキャッシュする既定実装。
 ///
 /// - メモリ内キャッシュ（jobId キー）で再取得を抑制する（ディスク永続化はスコープ外）。
+/// - キャッシュは `NSCache`（件数上限つき）で、大量プロジェクトでも青天井に NSImage を抱えない。
 /// - 同一 jobId への同時要求は in-flight タスクを共有して二重取得を防ぐ。
 /// - 失敗はキャッシュせず nil を返す（次回再試行を許す）。存在判定は呼び出し側の `hasThumbnail` で行う。
 @MainActor
 public final class ThumbnailProvider: ThumbnailLoading {
     private let repository: any JobRepository
-    private var cache: [String: NSImage] = [:]
+    private let cache = NSCache<NSString, NSImage>()
     private var inflight: [String: Task<NSImage?, Never>] = [:]
 
-    public init(repository: any JobRepository) {
+    /// - Parameter cacheCountLimit: 保持するサムネイル枚数の上限（既定 256）。超過分は NSCache が随時破棄する。
+    public init(repository: any JobRepository, cacheCountLimit: Int = 256) {
         self.repository = repository
+        cache.countLimit = cacheCountLimit
     }
 
     public func cachedImage(forJob jobId: String) -> NSImage? {
-        cache[jobId]
+        cache.object(forKey: jobId as NSString)
     }
 
     public func image(forJob jobId: String) async -> NSImage? {
-        if let cached = cache[jobId] { return cached }
+        if let cached = cache.object(forKey: jobId as NSString) { return cached }
         if let task = inflight[jobId] { return await task.value }
 
         let repository = self.repository
@@ -46,7 +49,7 @@ public final class ThumbnailProvider: ThumbnailLoading {
         inflight[jobId] = task
         let image = await task.value
         inflight.removeValue(forKey: jobId)
-        if let image { cache[jobId] = image }
+        if let image { cache.setObject(image, forKey: jobId as NSString) }
         return image
     }
 }

@@ -93,6 +93,28 @@ import Foundation
         #expect(model.libraryLoadError != nil)
     }
 
+    @Test func completingJobMarksThumbnailAvailable() async {
+        // セッション内でジョブが完了したら、サムネイル（extract 工程で生成済み）を取得対象にする。
+        // 再起動・一覧再取得を待たず、完了後すぐ実画像を表示できること（CodeRabbit 指摘 / USL-103）。
+        var client = MockBackendClient()
+        client.jobList = JobListResponse(items: [
+            JobSummary(projectId: "p1", jobId: "j1", status: .running,
+                       createdAt: "2026-06-21T10:00:00+00:00", duration: 0,
+                       videoPath: "/Movies/v.mp4", language: nil, currentStage: .extract,
+                       hasThumbnail: false),
+        ])
+        let model = AppModel(launcher: MockSidecarLauncher(), clientFactory: { [client] _ in client })
+        await model.start()
+
+        #expect(model.projects.first?.thumbnailAvailable == false) // 実行中は未取得
+
+        model.updateJobState(jobId: "j1", to: .done, duration: 12.0)
+
+        #expect(model.projects.first?.state == .done)
+        #expect(model.projects.first?.thumbnailAvailable == true) // 完了で取得対象に切替
+        #expect(model.projects.first?.jobId == "j1")
+    }
+
     @Test func restoredProjectsDeduplicateAgainstSessionCreated() async {
         // セッション内で作成済みの projectId は、再接続時の復元でも重複させずセッション側を優先する。
         var client = MockBackendClient()
