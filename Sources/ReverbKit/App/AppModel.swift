@@ -243,6 +243,20 @@ public final class AppModel {
         )
     }
 
+    /// ライブラリ行からプロジェクトを削除する（screens.md §1 / USL-102）。
+    /// `DELETE /jobs/{id}`（USL-99）を呼び、**成功時のみ**台帳から除去して一覧を即時更新する。
+    /// 再起動後の一覧（`GET /jobs`）にも残らない。実行中（queued/running）は backend が 409 で拒否するため、
+    /// エラーはそのまま投げて UI に表示させる（失敗は黙って握り潰さない）。失敗時は台帳を変更しない（不整合回避）。
+    /// 削除対象が現在開いている／対象中のジョブなら、開いた状態を解除して参照の残留を防ぐ。
+    public func deleteProject(_ project: ProjectRowData) async throws {
+        guard let jobRepository else { return }
+        guard let jobId = records.first(where: { $0.row.id == project.id })?.jobId else { return }
+        try await jobRepository.deleteJob(id: jobId)
+        records.removeAll { $0.row.id == project.id }
+        if activeJobId == jobId { activeJobId = nil }
+        if playerJobId == jobId { playerJobId = nil }
+    }
+
     // MARK: - Private
 
     /// `GET /jobs` で永続プロジェクトを取得し、台帳へマージする（USL-95）。

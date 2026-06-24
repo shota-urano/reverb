@@ -8,6 +8,8 @@ public protocol JobRepository: Sendable {
     func listJobs() async throws -> JobListResponse
     func job(id: String) async throws -> JobStatus
     func cancel(id: String) async throws
+    /// プロジェクト削除（`DELETE /jobs/{id}` / USL-99）。実行中は backend が 409 で拒否するため失敗を投げる。
+    func deleteJob(id: String) async throws
     func result(id: String) async throws -> JobResult
     /// 進捗ストリーム（SSE）。ポーリングのフォールバックは ViewModel 側で選択する。
     func events(id: String) -> AsyncThrowingStream<JobEvent, Error>
@@ -35,6 +37,10 @@ public struct DefaultJobRepository: JobRepository {
 
     public func cancel(id: String) async throws {
         try await client.cancelJob(id: id)
+    }
+
+    public func deleteJob(id: String) async throws {
+        try await client.deleteJob(id: id)
     }
 
     public func result(id: String) async throws -> JobResult {

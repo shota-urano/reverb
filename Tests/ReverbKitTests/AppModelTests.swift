@@ -290,6 +290,75 @@ import Foundation
         #expect(model.playerJobId == "jA")
         #expect(model.selection == .library)
     }
+
+    // MARK: - プロジェクト削除（USL-102）
+
+    @Test func deleteProjectRemovesFromLibraryOnSuccess() async throws {
+        var client = MockBackendClient()
+        client.jobList = JobListResponse(items: [
+            JobSummary(projectId: "p_keep", jobId: "j_keep", status: .done,
+                       createdAt: "2026-06-21T10:00:00+00:00", duration: 5,
+                       videoPath: "/Movies/keep.mp4", language: nil, currentStage: nil),
+            JobSummary(projectId: "p_del", jobId: "j_del", status: .done,
+                       createdAt: "2026-06-20T10:00:00+00:00", duration: 8,
+                       videoPath: "/Movies/del.mp4", language: nil, currentStage: nil),
+        ])
+        let model = AppModel(launcher: MockSidecarLauncher(), clientFactory: { [client] _ in client })
+        await model.start()
+        #expect(model.projects.count == 2)
+
+        let target = try #require(model.projects.first { $0.id == "p_del" })
+        try await model.deleteProject(target)
+
+        // 成功時は台帳から除去され一覧が即時更新される。他のプロジェクトは残る。
+        #expect(model.projects.count == 1)
+        #expect(model.projects.first?.id == "p_keep")
+    }
+
+    @Test func deleteProjectKeepsListWhenBackendRejects() async {
+        var client = MockBackendClient()
+        client.jobList = JobListResponse(items: [
+            JobSummary(projectId: "p_run", jobId: "j_run", status: .running,
+                       createdAt: "2026-06-21T10:00:00+00:00", duration: 0,
+                       videoPath: "/Movies/run.mp4", language: nil, currentStage: .translate),
+        ])
+        // 実行中は backend が 409 で拒否する想定。
+        client.deleteError = .api(
+            BackendErrorBody(code: "JOB_RUNNING", stage: nil, message: "Job is running", retryable: true),
+            statusCode: 409
+        )
+        let model = AppModel(launcher: MockSidecarLauncher(), clientFactory: { [client] _ in client })
+        await model.start()
+        let target = model.projects.first!
+
+        await #expect(throws: BackendError.self) {
+            try await model.deleteProject(target)
+        }
+        // 失敗時は握り潰さず投げ、台帳は変更しない（一覧の不整合を起こさない）。
+        #expect(model.projects.count == 1)
+        #expect(model.projects.first?.id == "p_run")
+    }
+
+    @Test func deleteProjectClearsOpenPlayerForDeletedJob() async throws {
+        var client = MockBackendClient()
+        client.jobList = JobListResponse(items: [
+            JobSummary(projectId: "p_open", jobId: "j_open", status: .done,
+                       createdAt: "2026-06-21T10:00:00+00:00", duration: 5,
+                       videoPath: "/Movies/open.mp4", language: nil, currentStage: nil),
+        ])
+        let model = AppModel(launcher: MockSidecarLauncher(), clientFactory: { [client] _ in client })
+        await model.start()
+        let target = try #require(model.projects.first)
+        model.open(target) // プレーヤーで開いた状態にする
+        #expect(model.playerJobId == "j_open")
+
+        try await model.deleteProject(target)
+
+        // 削除対象が開いていたら、開いた状態を解除して参照の残留を防ぐ。
+        #expect(model.projects.isEmpty)
+        #expect(model.playerJobId == nil)
+        #expect(model.activeJobId == nil)
+    }
 }
 
 /// clientFactory（@Sendable）に渡る URL を安全に受け取るための小箱。

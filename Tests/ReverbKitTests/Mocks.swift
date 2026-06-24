@@ -1,6 +1,12 @@
 import Foundation
 @testable import ReverbKit
 
+/// 削除を使わない既存スタブ向けの no-op 既定（USL-102）。
+/// 削除の成否を検証するテストは AppModel 経由で MockBackendClient.deleteError を使う。
+extension JobRepository {
+    func deleteJob(id: String) async throws {}
+}
+
 /// テスト用の BackendClient。固定値を返す。
 struct MockBackendClient: BackendClient {
     var health: HealthResponse = .init(
@@ -17,6 +23,8 @@ struct MockBackendClient: BackendClient {
     var jobList: JobListResponse = .init(items: [])
     /// 非 nil なら `jobs()` がこのエラーで失敗する。
     var jobsError: BackendError?
+    /// 非 nil なら `deleteJob(id:)` がこのエラーで失敗する（USL-102 の削除失敗検証用）。
+    var deleteError: BackendError?
 
     func health() async throws -> HealthResponse { health }
     func models() async throws -> ModelsResponse { models }
@@ -33,6 +41,9 @@ struct MockBackendClient: BackendClient {
               progress: 0.4, stages: [], error: nil)
     }
     func cancelJob(id: String) async throws {}
+    func deleteJob(id: String) async throws {
+        if let deleteError { throw deleteError }
+    }
     func jobResult(id: String) async throws -> JobResult {
         .init(projectId: "p_test", videoPath: "/v.mp4", voiceoverPath: "/vo.wav",
               subtitlesPath: "/s.json", duration: 1.0)

@@ -57,17 +57,21 @@ public struct ProjectRow: View {
     private let onShowInFinder: (() -> Void)?
     /// `…` メニュー: プロジェクト情報を表示。
     private let onShowInfo: (() -> Void)?
+    /// `…` メニュー: プロジェクトを削除（破壊的操作 / screens.md §1）。確認は呼び出し側で行う。
+    private let onDelete: (() -> Void)?
 
     public init(
         data: ProjectRowData,
         onOpen: @escaping () -> Void,
         onShowInFinder: (() -> Void)? = nil,
-        onShowInfo: (() -> Void)? = nil
+        onShowInfo: (() -> Void)? = nil,
+        onDelete: (() -> Void)? = nil
     ) {
         self.data = data
         self.onOpen = onOpen
         self.onShowInFinder = onShowInFinder
         self.onShowInfo = onShowInfo
+        self.onDelete = onDelete
     }
 
     public var body: some View {
@@ -150,13 +154,18 @@ public struct ProjectRow: View {
 
     @ViewBuilder
     private var optionsMenu: some View {
-        if onShowInFinder != nil || onShowInfo != nil {
+        if onShowInFinder != nil || onShowInfo != nil || onDelete != nil {
             Menu {
                 if let onShowInFinder {
                     Button("Finder で表示", systemImage: "folder") { onShowInFinder() }
                 }
                 if let onShowInfo {
                     Button("プロジェクト情報", systemImage: "info.circle") { onShowInfo() }
+                }
+                if let onDelete {
+                    // 破壊的操作は末尾に分離し、赤系（.destructive）で表示する（screens.md §1）。
+                    Divider()
+                    Button("削除", systemImage: "trash", role: .destructive) { onDelete() }
                 }
             } label: {
                 Image(systemName: "ellipsis")
