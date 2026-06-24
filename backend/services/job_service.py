@@ -94,6 +94,13 @@ class JobService:
         if changed:
             self._notify(record)
 
+    def delete_job(self, job_id: str) -> None:
+        self.store.delete(job_id)
+        with self._lock:
+            queues = self._subscribers.pop(job_id, [])
+        for queue in queues:
+            queue.put(None)
+
     def result(self, job_id: str) -> JobResult:
         record = self.store.get(job_id)
         if record.status != JobState.done:

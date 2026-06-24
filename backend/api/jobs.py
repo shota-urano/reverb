@@ -7,7 +7,14 @@ from fastapi.responses import StreamingResponse
 
 from core.serialization import model_to_json
 from schemas.enums import JobState
-from schemas.jobs import CreateJobRequest, CreateJobResponse, JobListResponse, JobResult, JobStatus
+from schemas.jobs import (
+    CreateJobRequest,
+    CreateJobResponse,
+    EmptyResponse,
+    JobListResponse,
+    JobResult,
+    JobStatus,
+)
 
 router = APIRouter(prefix="/jobs")
 
@@ -39,6 +46,12 @@ def cancel_job(job_id: str, request: Request) -> dict:
     return {}
 
 
+@router.delete("/{job_id}", status_code=200, response_model=EmptyResponse)
+def delete_job(job_id: str, request: Request) -> EmptyResponse:
+    request.app.state.job_service.delete_job(job_id)
+    return EmptyResponse()
+
+
 @router.get("/{job_id}/result", response_model=JobResult)
 def job_result(job_id: str, request: Request) -> JobResult:
     return request.app.state.job_service.result(job_id)
@@ -57,6 +70,8 @@ def job_events(job_id: str, request: Request) -> StreamingResponse:
                 except Empty:
                     yield ": keep-alive\n\n"
                     continue
+                if snapshot is None:
+                    break
                 if snapshot.status == JobState.done:
                     result = service.result(job_id)
                     yield (

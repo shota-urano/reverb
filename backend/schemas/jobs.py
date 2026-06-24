@@ -57,3 +57,7 @@ class JobResult(BaseModel):
     voiceoverPath: str
     subtitlesPath: str
     duration: float
+
+
+class EmptyResponse(BaseModel):
+    pass

@@ -124,9 +124,7 @@ class BackendConfig:
     default_speaker_name: str = field(
         default_factory=lambda: os.getenv("REVERB_SPEAKER_NAME", "阿井田 茂")
     )
-    default_style_id: int = field(
-        default_factory=lambda: _env_int("REVERB_STYLE_ID", 1310138976)
-    )
+    default_style_id: int = field(default_factory=lambda: _env_int("REVERB_STYLE_ID", 1310138976))
     # VOICEVOX 互換TTSエンジン共通の合成タイムアウト。既存環境変数との互換を
     # 優先し、AivisSpeech でも同じ値を使う。
     voicevox_synthesis_timeout_seconds: float = field(
@@ -252,6 +250,11 @@ def _stt_model_repos() -> Dict[str, str]:
 
 
 def _default_projects_dir() -> Path:
+    # 保存先はコードに固定せず設定値に切り出す（ルール6）。テスト/別環境では
+    # REVERB_PROJECTS_DIR で一時ディレクトリ等に差し替えられるようにする。
+    override = os.getenv("REVERB_PROJECTS_DIR")
+    if override:
+        return Path(override).expanduser()
     return Path.home() / "Library" / "Application Support" / "Reverb" / "projects"
 
 
