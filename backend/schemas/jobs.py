@@ -29,6 +29,7 @@ class JobSummary(BaseModel):
     videoPath: str
     language: Optional[str]
     currentStage: Optional[StageName]
+    hasThumbnail: bool
 
 
 class JobListResponse(BaseModel):
@@ -49,6 +50,7 @@ class JobStatus(BaseModel):
     progress: float
     stages: List[StageProgress]
     error: Optional[ErrorBody]
+    hasThumbnail: bool
 
 
 class JobResult(BaseModel):

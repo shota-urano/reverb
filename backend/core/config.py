@@ -49,6 +49,10 @@ class BackendConfig:
     extract_codec: str = field(
         default_factory=lambda: os.getenv("REVERB_EXTRACT_CODEC", "pcm_s16le")
     )
+    thumbnail_offset_seconds: float = field(
+        default_factory=lambda: _env_float("REVERB_THUMBNAIL_OFFSET_SECONDS", 1.0)
+    )
+    thumbnail_width: int = field(default_factory=lambda: _env_int("REVERB_THUMBNAIL_WIDTH", 320))
 
     # 導入時に最新タグ確認 (verify latest tag at setup time)。
     # モデル名は設定値としてのみ扱い、処理には引数で渡す。
@@ -205,6 +209,10 @@ class BackendConfig:
             raise ValueError("REVERB_EXTRACT_CHANNELS must be greater than 0")
         if not self.extract_codec:
             raise ValueError("REVERB_EXTRACT_CODEC must not be empty")
+        if self.thumbnail_offset_seconds < 0:
+            raise ValueError("REVERB_THUMBNAIL_OFFSET_SECONDS must be greater than or equal to 0")
+        if self.thumbnail_width <= 0:
+            raise ValueError("REVERB_THUMBNAIL_WIDTH must be greater than 0")
         if self.translate_timeout_seconds <= 0:
             raise ValueError("REVERB_TRANSLATE_TIMEOUT_SECONDS must be greater than 0")
         if self.stt_progress_rtf_estimate <= 0:
@@ -263,6 +271,8 @@ class BackendConfig:
             extract_sample_rate=self.extract_sample_rate,
             extract_channels=self.extract_channels,
             extract_codec=self.extract_codec,
+            thumbnail_offset_seconds=self.thumbnail_offset_seconds,
+            thumbnail_width=self.thumbnail_width,
             default_stt_engine=self.default_stt_engine,
             default_stt_model=self.default_stt_model,
             stt_model_repos=self.stt_model_repos,

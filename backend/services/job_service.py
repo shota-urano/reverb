@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from pathlib import Path
 from queue import Queue
 from threading import RLock
 from typing import Dict, List, Optional
 
 from core.config import BackendConfig
+from core.artifacts import THUMBNAIL_PATH
 from core.errors import BackendError
 from core.job_store import JobRecord, JobStore
 from pipeline.extract import AudioExtractor, ExtractStage
@@ -71,6 +73,7 @@ class JobService:
                 videoPath=record.video_path,
                 language=record.settings.stt.language if record.settings.stt else None,
                 currentStage=record.current_stage,
+                hasThumbnail=(record.project_dir / THUMBNAIL_PATH).exists(),
             )
             for record in records
         ]
@@ -111,6 +114,13 @@ class JobService:
                 retryable=True,
             )
         return record.result()
+
+    def thumbnail_path(self, job_id: str) -> Optional[Path]:
+        record = self.store.get(job_id)
+        path = record.project_dir / THUMBNAIL_PATH
+        if path.exists():
+            return path
+        return None
 
     def subscribe(self, job_id: str) -> Queue:
         self.store.get(job_id)
