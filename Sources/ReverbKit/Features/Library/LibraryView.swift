@@ -95,7 +95,8 @@ public struct LibraryView: View {
                             ? nil
                             : { revealInFinder(project) },
                         onShowInfo: { infoProject = project },
-                        onDelete: { deleteTarget = project }
+                        onDelete: { deleteTarget = project },
+                        thumbnailLoader: model.thumbnailProvider
                     )
                     Divider()
                 }

@@ -59,10 +59,12 @@ import Foundation
         {"items":[
           {"projectId":"p_new","jobId":"j_new","status":"running",
            "createdAt":"2026-06-21T10:00:00+00:00","duration":30.0,
-           "videoPath":"/tmp/new.mp4","language":null,"currentStage":"tts"},
+           "videoPath":"/tmp/new.mp4","language":null,"currentStage":"tts",
+           "hasThumbnail":false},
           {"projectId":"p_old","jobId":"j_old","status":"done",
            "createdAt":"2026-06-19T10:00:00+00:00","duration":12.5,
-           "videoPath":"/tmp/old.mp4","language":"en","currentStage":null}]}
+           "videoPath":"/tmp/old.mp4","language":"en","currentStage":null,
+           "hasThumbnail":true}]}
         """
         let list = try decoder.decode(JobListResponse.self, from: Data(json.utf8))
         #expect(list.items.count == 2)
@@ -70,9 +72,11 @@ import Foundation
         #expect(list.items.first?.status == .running)
         #expect(list.items.first?.currentStage == .tts)
         #expect(list.items.first?.language == nil) // 自動判定（null）
+        #expect(list.items.first?.hasThumbnail == false) // 生成前
         #expect(list.items.last?.language == "en")
         #expect(list.items.last?.currentStage == nil)
         #expect(list.items.last?.duration == 12.5)
+        #expect(list.items.last?.hasThumbnail == true) // 完了＝生成済み
     }
 
     @Test func decodeJobResult() throws {

@@ -5,6 +5,8 @@ import Foundation
 /// 削除の成否を検証するテストは AppModel 経由で MockBackendClient.deleteError を使う。
 extension JobRepository {
     func deleteJob(id: String) async throws {}
+    /// サムネイルを使わない既存スタブ向けの既定（USL-103）。空データ＝画像なし扱い。
+    func thumbnail(jobId: String) async throws -> Data { Data() }
 }
 
 /// テスト用の BackendClient。固定値を返す。
@@ -48,6 +50,9 @@ struct MockBackendClient: BackendClient {
         .init(projectId: "p_test", videoPath: "/v.mp4", voiceoverPath: "/vo.wav",
               subtitlesPath: "/s.json", duration: 1.0)
     }
+    /// サムネイル取得（既定は空データ＝画像なし扱い）。
+    var thumbnailData: Data = Data()
+    func thumbnail(jobId: String) async throws -> Data { thumbnailData }
     func events(jobId: String) -> AsyncThrowingStream<JobEvent, Error> {
         AsyncThrowingStream { $0.finish() }
     }
