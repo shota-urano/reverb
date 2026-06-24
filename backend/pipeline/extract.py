@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Callable, Dict, Protocol
 
-from core.artifacts import AUDIO_PATH
+from core.artifacts import AUDIO_PATH, THUMBNAIL_PATH
 from core.errors import StageError
 from pipeline.stage import PipelineContext, Stage
 from schemas.enums import StageName
+
+logger = logging.getLogger(__name__)
 
 
 class AudioExtractor(Protocol):
@@ -18,6 +21,14 @@ class AudioExtractor(Protocol):
         out_path: Path,
         options: Dict[str, object],
         progress_cb: Callable[[float], None],
+    ) -> None: ...
+
+    def extract_thumbnail(
+        self,
+        video_path: str,
+        out_path: Path,
+        offset_seconds: float,
+        width: int,
     ) -> None: ...
 
 
@@ -44,4 +55,13 @@ class ExtractStage(Stage):
             },
             context.report_progress,
         )
+        try:
+            self.adapter.extract_thumbnail(
+                context.job.video_path,
+                context.project_dir / THUMBNAIL_PATH,
+                context.config.thumbnail_offset_seconds,
+                context.config.thumbnail_width,
+            )
+        except Exception as exc:
+            logger.warning("thumbnail generation failed for job %s: %s", context.job.job_id, exc)
         return str(AUDIO_PATH)

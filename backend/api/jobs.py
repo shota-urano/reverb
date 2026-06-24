@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from queue import Empty
 
-from fastapi import APIRouter, BackgroundTasks, Request
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from fastapi.responses import FileResponse, StreamingResponse
 
 from core.serialization import model_to_json
 from schemas.enums import JobState
@@ -55,6 +55,14 @@ def delete_job(job_id: str, request: Request) -> EmptyResponse:
 @router.get("/{job_id}/result", response_model=JobResult)
 def job_result(job_id: str, request: Request) -> JobResult:
     return request.app.state.job_service.result(job_id)
+
+
+@router.get("/{job_id}/thumbnail")
+def job_thumbnail(job_id: str, request: Request) -> FileResponse:
+    path = request.app.state.job_service.thumbnail_path(job_id)
+    if path is None:
+        raise HTTPException(status_code=404, detail="Thumbnail not found")
+    return FileResponse(path, media_type="image/jpeg")
 
 
 @router.get("/{job_id}/events")

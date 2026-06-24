@@ -11,6 +11,7 @@ from schemas.artifacts import Subtitles, Transcript, Translation
 SCHEMA_VERSION = 1
 
 AUDIO_PATH = Path("audio.wav")
+THUMBNAIL_PATH = Path("thumbnail.jpg")
 TRANSCRIPT_PATH = Path("transcript.json")
 TRANSLATION_PATH = Path("translation.json")
 SUBTITLES_PATH = Path("subtitles.json")

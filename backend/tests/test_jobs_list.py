@@ -130,6 +130,7 @@ def test_get_jobs_returns_persisted_projects(tmp_path: Path) -> None:
                 "videoPath": "/tmp/new.mp4",
                 "language": None,
                 "currentStage": "tts",
+                "hasThumbnail": False,
             },
             {
                 "projectId": "p_old",
@@ -140,6 +141,7 @@ def test_get_jobs_returns_persisted_projects(tmp_path: Path) -> None:
                 "videoPath": "/tmp/old.mp4",
                 "language": "en",
                 "currentStage": None,
+                "hasThumbnail": False,
             },
         ]
     }

@@ -9,6 +9,7 @@ from pathlib import Path
 from threading import RLock
 from typing import Callable, Dict, List, Optional
 
+from core.artifacts import AUDIO_PATH, THUMBNAIL_PATH
 from core.errors import BackendError, ErrorBody
 from core.ids import new_job_id, new_project_id
 from core.serialization import model_to_dict
@@ -18,7 +19,7 @@ from schemas.settings import JobSettings
 
 
 STAGE_ARTIFACT_PATHS = {
-    StageName.extract: ["audio.wav"],
+    StageName.extract: [str(AUDIO_PATH), str(THUMBNAIL_PATH)],
     StageName.transcribe: ["transcript.json"],
     StageName.translate: ["translation.json"],
     StageName.subtitle: ["subtitles.json"],
@@ -71,6 +72,7 @@ class JobRecord:
             ),
             stages=stages,
             error=self.error,
+            hasThumbnail=(self.project_dir / THUMBNAIL_PATH).exists(),
         )
 
     def result(self) -> JobResult:

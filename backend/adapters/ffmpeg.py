@@ -155,6 +155,52 @@ class FFmpegAdapter:
             if tmp_path.exists():
                 tmp_path.unlink()
 
+    def extract_thumbnail(
+        self,
+        video_path: str,
+        out_path: Path,
+        offset_seconds: float,
+        width: int,
+    ) -> None:
+        if shutil.which(self.ffmpeg_bin) is None:
+            raise StageError(
+                code="THUMBNAIL_FAILED",
+                message=f"ffmpeg binary not found: {self.ffmpeg_bin}",
+            )
+        video_path = self._require_local_path(video_path)
+
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = out_path.with_name(f"{out_path.name}.tmp")
+        command = [
+            self.ffmpeg_bin,
+            "-ss",
+            str(offset_seconds),
+            "-i",
+            video_path,
+            "-frames:v",
+            "1",
+            "-vf",
+            f"scale={width}:-2",
+            "-y",
+            "-f",
+            "image2",
+            str(tmp_path),
+        ]
+
+        try:
+            result = subprocess.run(
+                command,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                raise StageError(code="THUMBNAIL_FAILED", message=result.stderr.strip())
+            os.replace(tmp_path, out_path)
+        finally:
+            if tmp_path.exists():
+                tmp_path.unlink()
+
     def mix_voiceover(
         self,
         original_audio_path: Path,
