@@ -1,5 +1,5 @@
 import React from "react";
-import { AbsoluteFill, Series } from "remotion";
+import { AbsoluteFill, Audio, interpolate, Series, staticFile } from "remotion";
 import { HookScene } from "./scenes/HookScene";
 import { SubtitleSwap } from "./SubtitleSwap";
 import { PipelineScene } from "./scenes/PipelineScene";
@@ -23,6 +23,20 @@ export const PROMO_DURATION =
 export const Promo: React.FC = () => {
   return (
     <AbsoluteFill style={{ backgroundColor: theme.videoSurface }}>
+      {/* BGM: kornevmusic「Epic」（CC0/ロイヤリティフリー）。30秒地点から開始し、
+          終盤（締め）がサビのピークに重なるようにした。頭0.5s で立ち上げ、終わり1.8s で絞る。 */}
+      <Audio
+        src={staticFile("kornevmusic-epic-478847.mp3")}
+        trimBefore={900} // 30s × 30fps
+        volume={(f) =>
+          interpolate(
+            f,
+            [0, 15, PROMO_DURATION - 54, PROMO_DURATION],
+            [0, 0.7, 0.7, 0],
+            { extrapolateLeft: "clamp", extrapolateRight: "clamp" }
+          )
+        }
+      />
       <Series>
         <Series.Sequence durationInFrames={SCENES.hook}>
           <HookScene />

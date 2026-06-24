@@ -2,3 +2,6 @@ node_modules/
 out/
 .remotion/
 captures/
+
+# public 配下の音声（BGM 等）は本編素材なので追跡する（ルート .gitignore の *.mp3 を上書き）
+!public/*.mp3
