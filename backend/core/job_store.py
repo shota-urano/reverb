@@ -151,7 +151,11 @@ class JobStore:
                     retryable=False,
                 )
 
-            shutil.rmtree(project_dir, ignore_errors=True)
+            try:
+                shutil.rmtree(project_dir)
+            except FileNotFoundError:
+                # Directory already removed; treat as already deleted (idempotent).
+                pass
             del self._jobs[job_id]
             return record
 

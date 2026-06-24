@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -62,6 +63,15 @@ def test_delete_missing_job_returns_404(tmp_path: Path) -> None:
     assert response.json()["error"]["code"] == "JOB_NOT_FOUND"
 
 
+def test_delete_job_openapi_registers_empty_response_schema(tmp_path: Path) -> None:
+    app = create_app(projects_dir=tmp_path)
+
+    delete_operation = app.openapi()["paths"]["/jobs/{job_id}"]["delete"]
+
+    schema = delete_operation["responses"]["200"]["content"]["application/json"]["schema"]
+    assert schema["$ref"] == "#/components/schemas/EmptyResponse"
+
+
 def test_delete_job_twice_returns_404(tmp_path: Path) -> None:
     app = create_app(projects_dir=tmp_path)
     _stub_empty_pipeline(app)
@@ -93,6 +103,45 @@ def test_store_delete_rejects_project_dir_outside_projects_dir(tmp_path: Path) -
     assert exc_info.value.code == "INVALID_PATH"
     assert exc_info.value.status_code == 400
     assert outside_dir.exists()
+
+
+def test_store_delete_keeps_record_when_rmtree_permission_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = create_app(projects_dir=tmp_path)
+    store = JobStore(tmp_path)
+    record = store.create("/tmp/input.mp4", default_job_settings(app.state.config))
+    record.status = JobState.done
+
+    def raise_permission_error(_path: Path) -> None:
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(shutil, "rmtree", raise_permission_error)
+
+    with pytest.raises(PermissionError):
+        store.delete(record.job_id)
+
+    assert record.job_id in store._jobs
+
+
+def test_store_delete_swallows_missing_project_dir_and_removes_record(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = create_app(projects_dir=tmp_path)
+    store = JobStore(tmp_path)
+    record = store.create("/tmp/input.mp4", default_job_settings(app.state.config))
+    record.status = JobState.done
+
+    def raise_file_not_found_error(_path: Path) -> None:
+        raise FileNotFoundError("already gone")
+
+    monkeypatch.setattr(shutil, "rmtree", raise_file_not_found_error)
+
+    store.delete(record.job_id)
+
+    assert record.job_id not in store._jobs
 
 
 def test_save_deleted_record_does_not_recreate_project_manifest(tmp_path: Path) -> None:
