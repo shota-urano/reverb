@@ -135,8 +135,7 @@ public struct ProcessingView: View {
     /// queued: まだ工程が始まっていない（不確定インジケータ）。
     private var preparingSection: some View {
         HStack(spacing: 12) {
-            ProgressView()
-                .controlSize(.small)
+            SlowSpinner(size: 16)
             Text("処理を準備しています")
                 .font(.body)
         }
@@ -277,7 +276,7 @@ public struct ProcessingView: View {
         } label: {
             if viewModel.isCanceling {
                 HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
+                    SlowSpinner(size: 13)
                     Text("キャンセル中…")
                 }
             } else {

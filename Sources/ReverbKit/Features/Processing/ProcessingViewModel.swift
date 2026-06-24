@@ -39,7 +39,7 @@ public final class ProcessingViewModel {
     public init(
         jobRepository: (any JobRepository)?,
         modelRepository: (any ModelRepository)?,
-        pollInterval: Duration = .seconds(2)
+        pollInterval: Duration = .seconds(1)
     ) {
         self.jobRepository = jobRepository
         self.modelRepository = modelRepository
@@ -83,12 +83,28 @@ public final class ProcessingViewModel {
         if await refresh(jobRepository, jobId) { return }
         if Task.isCancelled { return }
 
-        // 2) SSE で進捗を更新。終了せず stream が閉じたらポーリングへ。
-        let sawDone = await streamEvents(jobRepository, jobId)
-        if sawDone || Task.isCancelled { return }
-
-        // 3) ポーリングで終了状態まで追う。
-        await pollUntilTerminal(jobRepository, jobId)
+        // 2) SSE（低遅延）とポーリング（確実性）を並行実行する。
+        //    SSE は環境によりイベントが届かないことがあるため、ポーリングを常時の
+        //    更新基盤とし、SSE は届けば即時反映する上乗せとする。どちらの更新も
+        //    @MainActor 上の apply 経由なので競合しない。終了状態はポーリングが確定する。
+        await withTaskGroup(of: Bool.self) { group in
+            group.addTask { [weak self] in
+                guard let self else { return false }
+                return await self.streamEvents(jobRepository, jobId)
+            }
+            group.addTask { [weak self] in
+                guard let self else { return false }
+                return await self.pollUntilTerminal(jobRepository, jobId)
+            }
+            // 子の戻り値は「終了状態に達したか」。SSE が done 無しで閉じても（false）
+            // ポーリングは止めず継続する。どちらかが終了状態を確定したら残りを止める。
+            while let reachedTerminal = await group.next() {
+                if reachedTerminal {
+                    group.cancelAll()
+                    return
+                }
+            }
+        }
     }
 
     /// キャンセルを要求する（確認ダイアログ確定後に呼ぶ / screens.md §2）。
@@ -131,15 +147,17 @@ public final class ProcessingViewModel {
     }
 
     /// 終了状態に達するまで一定間隔でスナップショットを取り続ける。
-    private func pollUntilTerminal(_ repo: any JobRepository, _ jobId: String) async {
+    /// 終了状態を確定したら true、キャンセルで打ち切ったら false。
+    private func pollUntilTerminal(_ repo: any JobRepository, _ jobId: String) async -> Bool {
         while !Task.isCancelled {
-            if await refresh(repo, jobId) { return }
+            if await refresh(repo, jobId) { return true }
             do {
                 try await Task.sleep(for: pollInterval)
             } catch {
-                return // キャンセル
+                return false // キャンセル
             }
         }
+        return false
     }
 
     /// スナップショットを1回取得して反映する。終了状態なら true。
