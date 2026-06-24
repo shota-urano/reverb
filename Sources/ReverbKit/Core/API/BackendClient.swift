@@ -13,6 +13,9 @@ public protocol BackendClient: Sendable {
     func jobs() async throws -> JobListResponse
     func job(id: String) async throws -> JobStatus
     func cancelJob(id: String) async throws
+    /// プロジェクト削除（`DELETE /jobs/{id}` / USL-99）。ジョブと成果物を削除する。
+    /// 実行中（queued/running）は backend が 409 で拒否するため、失敗は握り潰さず投げる。
+    func deleteJob(id: String) async throws
     func jobResult(id: String) async throws -> JobResult
     /// 進捗 SSE（`GET /jobs/{id}/events`）。ポーリングのフォールバックは Repository 側で選択する。
     func events(jobId: String) -> AsyncThrowingStream<JobEvent, Error>
@@ -62,6 +65,10 @@ public final class HTTPBackendClient: BackendClient {
 
     public func cancelJob(id: String) async throws {
         let _: EmptyResponse = try await post("jobs/\(id)/cancel", body: EmptyBody())
+    }
+
+    public func deleteJob(id: String) async throws {
+        let _: EmptyResponse = try await delete("jobs/\(id)")
     }
 
     public func jobResult(id: String) async throws -> JobResult {
@@ -160,6 +167,12 @@ public final class HTTPBackendClient: BackendClient {
     private func get<T: Decodable>(_ path: String) async throws -> T {
         var request = URLRequest(url: url(for: path))
         request.httpMethod = "GET"
+        return try await send(request)
+    }
+
+    private func delete<T: Decodable>(_ path: String) async throws -> T {
+        var request = URLRequest(url: url(for: path))
+        request.httpMethod = "DELETE"
         return try await send(request)
     }
 

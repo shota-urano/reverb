@@ -13,6 +13,10 @@ public struct LibraryView: View {
     @State private var isDropTargeted = false
     /// 「…」→ プロジェクト情報シートの対象。
     @State private var infoProject: ProjectRowData?
+    /// 「…」→ 削除の確認対象（非 nil の間、確認ダイアログを表示）。
+    @State private var deleteTarget: ProjectRowData?
+    /// 削除失敗時のメッセージ（成功・未試行は nil）。握り潰さずアラート表示する。
+    @State private var deleteErrorMessage: String?
 
     public init(model: AppModel) {
         self.model = model
@@ -90,13 +94,40 @@ public struct LibraryView: View {
                         onShowInFinder: model.sourcePath(for: project.id) == nil
                             ? nil
                             : { revealInFinder(project) },
-                        onShowInfo: { infoProject = project }
+                        onShowInfo: { infoProject = project },
+                        onDelete: { deleteTarget = project }
                     )
                     Divider()
                 }
             }
         }
         .accessibilityLabel("プロジェクト一覧")
+        // 破壊的操作のため必ず確認を挟む（screens.md §1）。
+        .confirmationDialog(
+            "このプロジェクトを削除しますか？",
+            isPresented: Binding(
+                get: { deleteTarget != nil },
+                set: { if !$0 { deleteTarget = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: deleteTarget
+        ) { project in
+            Button("削除", role: .destructive) { performDelete(project) }
+            Button("キャンセル", role: .cancel) { deleteTarget = nil }
+        } message: { project in
+            Text("「\(project.title)」を削除します。この操作は元に戻せません。成果物も削除されます。")
+        }
+        .alert(
+            "削除できません",
+            isPresented: Binding(
+                get: { deleteErrorMessage != nil },
+                set: { if !$0 { deleteErrorMessage = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(deleteErrorMessage ?? "")
+        }
     }
 
     private var selectButton: some View {
@@ -164,6 +195,27 @@ public struct LibraryView: View {
     private func revealInFinder(_ project: ProjectRowData) {
         guard let path = model.sourcePath(for: project.id) else { return }
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+    }
+
+    /// 確認後の削除実行（USL-102）。成功時は AppModel が台帳から除去し一覧が即時更新される。
+    /// 失敗は握り潰さずアラート表示する。
+    private func performDelete(_ project: ProjectRowData) {
+        deleteTarget = nil
+        Task {
+            do {
+                try await model.deleteProject(project)
+            } catch {
+                deleteErrorMessage = Self.deleteErrorText(error)
+            }
+        }
+    }
+
+    /// 削除エラーを利用者向け文言へ変換する。実行中（409 / JOB_RUNNING）は「先にキャンセル」を促す。
+    private static func deleteErrorText(_ error: Error) -> String {
+        if case let BackendError.api(_, statusCode) = error, statusCode == 409 {
+            return "処理の実行中は削除できません。先に処理をキャンセルしてください。"
+        }
+        return (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
     }
 }
 
