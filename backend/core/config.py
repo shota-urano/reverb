@@ -11,6 +11,12 @@ from core.net import validate_loopback_host, validate_loopback_url
 DEFAULT_STT_PROGRESS_RTF_ESTIMATE = 0.5
 DEFAULT_STT_PROGRESS_MAX_FRACTION = 0.95
 DEFAULT_STT_PROGRESS_INTERVAL_SECONDS = 0.25
+DEFAULT_TRANSLATE_PROGRESS_ESTIMATED_CHUNK_SECONDS = 30.0
+DEFAULT_TRANSLATE_PROGRESS_INTERVAL_SECONDS = 0.25
+DEFAULT_TTS_PROGRESS_ESTIMATED_CUE_SECONDS = 2.0
+DEFAULT_TTS_PROGRESS_INTERVAL_SECONDS = 0.25
+DEFAULT_MIX_PROGRESS_ESTIMATED_ITEM_SECONDS = 5.0
+DEFAULT_MIX_PROGRESS_INTERVAL_SECONDS = 0.25
 
 
 @dataclass(frozen=True)
@@ -73,6 +79,48 @@ class BackendConfig:
         default_factory=lambda: _env_float(
             "REVERB_STT_PROGRESS_INTERVAL_SECONDS",
             DEFAULT_STT_PROGRESS_INTERVAL_SECONDS,
+        )
+    )
+    # TODO: adjust after real-world profiling
+    translate_progress_estimated_chunk_seconds: float = field(
+        default_factory=lambda: _env_float(
+            "REVERB_TRANSLATE_PROGRESS_ESTIMATED_CHUNK_SECONDS",
+            DEFAULT_TRANSLATE_PROGRESS_ESTIMATED_CHUNK_SECONDS,
+        )
+    )
+    # TODO: adjust after real-world profiling
+    translate_progress_interval_seconds: float = field(
+        default_factory=lambda: _env_float(
+            "REVERB_TRANSLATE_PROGRESS_INTERVAL_SECONDS",
+            DEFAULT_TRANSLATE_PROGRESS_INTERVAL_SECONDS,
+        )
+    )
+    # TODO: adjust after real-world profiling
+    tts_progress_estimated_cue_seconds: float = field(
+        default_factory=lambda: _env_float(
+            "REVERB_TTS_PROGRESS_ESTIMATED_CUE_SECONDS",
+            DEFAULT_TTS_PROGRESS_ESTIMATED_CUE_SECONDS,
+        )
+    )
+    # TODO: adjust after real-world profiling
+    tts_progress_interval_seconds: float = field(
+        default_factory=lambda: _env_float(
+            "REVERB_TTS_PROGRESS_INTERVAL_SECONDS",
+            DEFAULT_TTS_PROGRESS_INTERVAL_SECONDS,
+        )
+    )
+    # TODO: adjust after real-world profiling
+    mix_progress_estimated_item_seconds: float = field(
+        default_factory=lambda: _env_float(
+            "REVERB_MIX_PROGRESS_ESTIMATED_ITEM_SECONDS",
+            DEFAULT_MIX_PROGRESS_ESTIMATED_ITEM_SECONDS,
+        )
+    )
+    # TODO: adjust after real-world profiling
+    mix_progress_interval_seconds: float = field(
+        default_factory=lambda: _env_float(
+            "REVERB_MIX_PROGRESS_INTERVAL_SECONDS",
+            DEFAULT_MIX_PROGRESS_INTERVAL_SECONDS,
         )
     )
     # NOTE: confirm latest model tag at install time. モデル名は設定値としてのみ扱う。
@@ -165,6 +213,20 @@ class BackendConfig:
             raise ValueError("REVERB_STT_PROGRESS_MAX_FRACTION must be in the range (0.0, 1.0)")
         if self.stt_progress_interval_seconds <= 0:
             raise ValueError("REVERB_STT_PROGRESS_INTERVAL_SECONDS must be greater than 0")
+        if self.translate_progress_estimated_chunk_seconds <= 0:
+            raise ValueError(
+                "REVERB_TRANSLATE_PROGRESS_ESTIMATED_CHUNK_SECONDS must be greater than 0"
+            )
+        if self.translate_progress_interval_seconds <= 0:
+            raise ValueError("REVERB_TRANSLATE_PROGRESS_INTERVAL_SECONDS must be greater than 0")
+        if self.tts_progress_estimated_cue_seconds <= 0:
+            raise ValueError("REVERB_TTS_PROGRESS_ESTIMATED_CUE_SECONDS must be greater than 0")
+        if self.tts_progress_interval_seconds <= 0:
+            raise ValueError("REVERB_TTS_PROGRESS_INTERVAL_SECONDS must be greater than 0")
+        if self.mix_progress_estimated_item_seconds <= 0:
+            raise ValueError("REVERB_MIX_PROGRESS_ESTIMATED_ITEM_SECONDS must be greater than 0")
+        if self.mix_progress_interval_seconds <= 0:
+            raise ValueError("REVERB_MIX_PROGRESS_INTERVAL_SECONDS must be greater than 0")
         if not self.ollama_keep_alive:
             raise ValueError("REVERB_OLLAMA_KEEP_ALIVE must not be empty")
         if self.translate_max_retries < 0:
@@ -207,6 +269,14 @@ class BackendConfig:
             stt_progress_rtf_estimate=self.stt_progress_rtf_estimate,
             stt_progress_max_fraction=self.stt_progress_max_fraction,
             stt_progress_interval_seconds=self.stt_progress_interval_seconds,
+            translate_progress_estimated_chunk_seconds=(
+                self.translate_progress_estimated_chunk_seconds
+            ),
+            translate_progress_interval_seconds=self.translate_progress_interval_seconds,
+            tts_progress_estimated_cue_seconds=self.tts_progress_estimated_cue_seconds,
+            tts_progress_interval_seconds=self.tts_progress_interval_seconds,
+            mix_progress_estimated_item_seconds=self.mix_progress_estimated_item_seconds,
+            mix_progress_interval_seconds=self.mix_progress_interval_seconds,
             default_translate_model=self.default_translate_model,
             translate_timeout_seconds=self.translate_timeout_seconds,
             ollama_keep_alive=self.ollama_keep_alive,

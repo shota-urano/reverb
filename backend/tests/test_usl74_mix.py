@@ -171,9 +171,7 @@ def test_mix_keeps_shorter_than_target_cues_at_equal_speed_without_resynthesizin
             mixer,
             voicevox,
             duration=4.0,
-            cues=[
-                SubtitleCue(id=0, start=0.0, end=2.0, lines=["短い音声。"], segmentIds=[0])
-            ],
+            cues=[SubtitleCue(id=0, start=0.0, end=2.0, lines=["短い音声。"], segmentIds=[0])],
             cue_durations={0: 1.0},
         )
 

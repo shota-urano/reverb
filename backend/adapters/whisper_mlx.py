@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import importlib.util
-import threading
-import time
 from pathlib import Path
 from typing import Callable, Mapping, Optional
 
@@ -13,6 +11,7 @@ from core.config import (
     DEFAULT_STT_PROGRESS_RTF_ESTIMATE,
 )
 from core.errors import StageError
+from core.progress_reporter import _EstimatedProgressReporter
 
 
 class WhisperMLXAdapter:
@@ -66,10 +65,11 @@ class WhisperMLXAdapter:
             resolved_repo = self._resolve_model(model)
             reporter = _EstimatedProgressReporter(
                 progress_cb=progress_cb,
-                duration_seconds=_duration_seconds(options),
-                rtf_estimate=self.progress_rtf_estimate,
-                max_progress=self.progress_max_fraction,
+                estimated_total_seconds=_duration_seconds(options) * self.progress_rtf_estimate,
+                base_progress=0.0,
+                ceiling_progress=self.progress_max_fraction,
                 interval_seconds=self.progress_interval_seconds,
+                thread_name="whisper-mlx-progress",
             )
             reporter.start()
             try:
@@ -109,55 +109,6 @@ def _model_missing_message(model: str) -> str:
         "Install mlx-whisper and pre-cache the configured model before running Reverb. "
         "Do not rely on runtime downloads."
     )
-
-
-class _EstimatedProgressReporter:
-    def __init__(
-        self,
-        *,
-        progress_cb: Callable[[float], None],
-        duration_seconds: float,
-        rtf_estimate: float,
-        max_progress: float,
-        interval_seconds: float,
-    ) -> None:
-        self.progress_cb = progress_cb
-        self.estimated_total_seconds = duration_seconds * rtf_estimate
-        self.max_progress = max_progress
-        self.interval_seconds = interval_seconds
-        self._stop = threading.Event()
-        self._last_progress = 0.0
-        self._thread: Optional[threading.Thread] = None
-
-    def start(self) -> None:
-        if self.estimated_total_seconds <= 0:
-            return
-        self._thread = threading.Thread(
-            target=self._run,
-            name="whisper-mlx-progress",
-            daemon=True,
-        )
-        self._thread.start()
-
-    def stop(self) -> None:
-        if self._thread is None:
-            return
-        self._stop.set()
-        self._thread.join()
-
-    def _run(self) -> None:
-        started_at = time.monotonic()
-        while not self._stop.wait(self.interval_seconds):
-            elapsed = time.monotonic() - started_at
-            estimated_fraction = elapsed / self.estimated_total_seconds
-            self._report(self.max_progress * estimated_fraction)
-
-    def _report(self, progress: float) -> None:
-        clamped = max(0.0, min(progress, self.max_progress))
-        if clamped < self._last_progress:
-            return
-        self._last_progress = clamped
-        self.progress_cb(clamped)
 
 
 def _duration_seconds(options: dict) -> float:

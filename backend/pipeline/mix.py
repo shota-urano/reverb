@@ -3,10 +3,11 @@ from __future__ import annotations
 import logging
 import wave
 from pathlib import Path
-from typing import Optional, Protocol
+from typing import Callable, Optional, Protocol
 
 from core.artifacts import AUDIO_PATH, VOICEOVER_PATH, get_cue_wav_path, read_subtitles
 from core.errors import StageError
+from core.progress_reporter import _EstimatedProgressReporter
 from pipeline.stage import PipelineContext, Stage
 from pipeline.tts import TtsSynthesizer
 from schemas.artifacts import SubtitleCue
@@ -43,11 +44,16 @@ class MixStage(Stage):
         context.report_progress(0.0)
         subtitles = read_subtitles(context.project_dir)
         total_cues = len(subtitles.cues)
+        total_progress_items = total_cues + 1
         cue_inputs: list[tuple[Path, float]] = []
 
         if total_cues == 0:
-            self._mix(context, cue_inputs, context.job.duration)
-            context.report_progress(1.0)
+            self._run_progress_item(
+                context,
+                index=0,
+                total_items=total_progress_items,
+                work=lambda: self._mix(context, cue_inputs, context.job.duration),
+            )
             return str(VOICEOVER_PATH)
 
         speaker_id = _setting_value(
@@ -66,10 +72,21 @@ class MixStage(Stage):
         skipped = 0
 
         for index, cue in enumerate(subtitles.cues):
-            path = get_cue_wav_path(context.project_dir, cue.id)
-            duration, speed_scale, skipped_target = self._prepare_cue(
-                context, cue, path, speaker_id, style_id
+            result: tuple[Optional[float], Optional[float], bool] = (None, None, False)
+
+            def prepare() -> None:
+                nonlocal result
+                path = get_cue_wav_path(context.project_dir, cue.id)
+                result = self._prepare_cue(context, cue, path, speaker_id, style_id)
+
+            self._run_progress_item(
+                context,
+                index=index,
+                total_items=total_progress_items,
+                work=prepare,
             )
+            path = get_cue_wav_path(context.project_dir, cue.id)
+            duration, speed_scale, skipped_target = result
             if skipped_target:
                 skipped += 1
             elif speed_scale is not None:
@@ -81,7 +98,6 @@ class MixStage(Stage):
                 placement_start = max(cue.start, next_available_start)
                 cue_inputs.append((path, placement_start))
                 next_available_start = placement_start + duration
-            context.report_progress((index + 1) / total_cues)
 
         logger.info(
             "speed_scale distribution: total=%d compressed(>1.0)=%d "
@@ -91,8 +107,42 @@ class MixStage(Stage):
             equal_speed,
             skipped,
         )
-        self._mix(context, cue_inputs, _output_duration(context, subtitles.cues, cue_inputs))
+        self._run_progress_item(
+            context,
+            index=total_cues,
+            total_items=total_progress_items,
+            work=lambda: self._mix(
+                context,
+                cue_inputs,
+                _output_duration(context, subtitles.cues, cue_inputs),
+            ),
+        )
         return str(VOICEOVER_PATH)
+
+    def _run_progress_item(
+        self,
+        context: PipelineContext,
+        *,
+        index: int,
+        total_items: int,
+        work: Callable[[], None],
+    ) -> None:
+        base_progress = index / total_items
+        ceiling_progress = (index + 1) / total_items
+        reporter = _EstimatedProgressReporter(
+            progress_cb=context.report_progress,
+            estimated_total_seconds=context.config.mix_progress_estimated_item_seconds,
+            base_progress=base_progress,
+            ceiling_progress=ceiling_progress,
+            interval_seconds=context.config.mix_progress_interval_seconds,
+            thread_name="mix-progress",
+        )
+        reporter.start()
+        try:
+            work()
+        finally:
+            reporter.stop()
+        context.report_progress(ceiling_progress)
 
     def _prepare_cue(
         self,
