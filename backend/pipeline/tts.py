@@ -7,6 +7,7 @@ from typing import Optional, Protocol
 
 from core.artifacts import TTS_DIR, get_cue_wav_path, read_subtitles
 from core.errors import StageError
+from core.progress_reporter import _EstimatedProgressReporter
 from pipeline.stage import PipelineContext, Stage
 from schemas.enums import StageName
 
@@ -62,14 +63,28 @@ class TtsStage(Stage):
         )
 
         for index, cue in enumerate(subtitles.cues):
-            path = get_cue_wav_path(context.project_dir, cue.id)
-            text = _cue_text(cue.lines)
-            if text:
-                wav_bytes = self._synthesize_cue(context, text, speaker_id, style_id, cue.id)
-                path.write_bytes(wav_bytes)
-            else:
-                _write_silent_wav(path)
-            context.report_progress((index + 1) / total_cues)
+            base_progress = index / total_cues
+            ceiling_progress = (index + 1) / total_cues
+            reporter = _EstimatedProgressReporter(
+                progress_cb=context.report_progress,
+                estimated_total_seconds=context.config.tts_progress_estimated_cue_seconds,
+                base_progress=base_progress,
+                ceiling_progress=ceiling_progress,
+                interval_seconds=context.config.tts_progress_interval_seconds,
+                thread_name="tts-progress",
+            )
+            reporter.start()
+            try:
+                path = get_cue_wav_path(context.project_dir, cue.id)
+                text = _cue_text(cue.lines)
+                if text:
+                    wav_bytes = self._synthesize_cue(context, text, speaker_id, style_id, cue.id)
+                    path.write_bytes(wav_bytes)
+                else:
+                    _write_silent_wav(path)
+            finally:
+                reporter.stop()
+            context.report_progress(ceiling_progress)
 
         # TTS emits multiple cue files; the stage artifact is the containing directory.
         return str(TTS_DIR)

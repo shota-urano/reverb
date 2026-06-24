@@ -138,7 +138,9 @@ def test_aivisspeech_http_speaker_errors_are_speaker_invalid(
 
 def test_tts_factory_selects_configured_engine() -> None:
     aivis = build_tts_adapter(
-        BackendConfig(default_tts_engine="aivisspeech", aivisspeech_base_url="http://127.0.0.1:10101")
+        BackendConfig(
+            default_tts_engine="aivisspeech", aivisspeech_base_url="http://127.0.0.1:10101"
+        )
     )
     voicevox = build_tts_adapter(
         BackendConfig(default_tts_engine="voicevox", voicevox_base_url="http://127.0.0.1:50021")

@@ -7,6 +7,7 @@ from typing import Optional, Protocol
 
 from core.artifacts import TRANSLATION_PATH, read_transcript, write_translation
 from core.errors import StageError
+from core.progress_reporter import _EstimatedProgressReporter
 from pipeline.stage import PipelineContext, Stage
 from schemas.artifacts import Translation, TranslationSegment, TranscriptSegment
 from schemas.enums import StageName
@@ -68,14 +69,35 @@ class TranslateStage(Stage):
         if has_linguistic_segments:
             self._warm_up(context, model)
 
+        last_chunk_seconds: Optional[float] = None
         for index, chunk in enumerate(chunks):
-            if any(not is_non_linguistic(segment.text) for segment in chunk):
-                translated = self._translate_chunk(
-                    context, transcript.segments, chunk, transcript.language, model
-                )
-                for segment, target in zip(chunk, translated):
-                    translated_by_id[segment.id] = target
-            context.report_progress((index + 1) / len(chunks))
+            base_progress = index / len(chunks)
+            ceiling_progress = (index + 1) / len(chunks)
+            reporter = _EstimatedProgressReporter(
+                progress_cb=context.report_progress,
+                estimated_total_seconds=(
+                    last_chunk_seconds
+                    if last_chunk_seconds is not None
+                    else context.config.translate_progress_estimated_chunk_seconds
+                ),
+                base_progress=base_progress,
+                ceiling_progress=ceiling_progress,
+                interval_seconds=context.config.translate_progress_interval_seconds,
+                thread_name="translate-progress",
+            )
+            reporter.start()
+            started_at = time.monotonic()
+            try:
+                if any(not is_non_linguistic(segment.text) for segment in chunk):
+                    translated = self._translate_chunk(
+                        context, transcript.segments, chunk, transcript.language, model
+                    )
+                    for segment, target in zip(chunk, translated):
+                        translated_by_id[segment.id] = target
+            finally:
+                reporter.stop()
+            last_chunk_seconds = time.monotonic() - started_at
+            context.report_progress(ceiling_progress)
 
         translation_segments = [
             TranslationSegment(
@@ -268,9 +290,7 @@ def _merge_chunk_targets(
     target_segments: list[TranscriptSegment],
     translated: list[str],
 ) -> list[str]:
-    translated_by_id = {
-        segment.id: target for segment, target in zip(target_segments, translated)
-    }
+    translated_by_id = {segment.id: target for segment, target in zip(target_segments, translated)}
     return [
         segment.text if is_non_linguistic(segment.text) else translated_by_id[segment.id]
         for segment in chunk
