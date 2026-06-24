@@ -1,8 +1,10 @@
 import React from "react";
 import {
   AbsoluteFill,
+  Img,
   interpolate,
   spring,
+  staticFile,
   useCurrentFrame,
   useVideoConfig,
 } from "remotion";
@@ -49,14 +51,9 @@ export const OutroScene: React.FC = () => {
           transform: `scale(${0.9 + logo * 0.1})`,
         }}
       >
-        <div
-          style={{
-            width: 26,
-            height: 26,
-            borderRadius: 8,
-            background: theme.accent,
-            boxShadow: "0 6px 24px rgba(79,99,233,0.6)",
-          }}
+        <Img
+          src={staticFile("brand-icon.png")}
+          style={{ width: 104, height: 104 }}
         />
         <span
           style={{
