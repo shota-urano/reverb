@@ -154,14 +154,29 @@ class BackendConfig:
     translate_context_window: int = field(
         default_factory=lambda: _env_int("REVERB_TRANSLATE_CONTEXT_WINDOW", 2)
     )
+    # 翻訳生成の温度。低すぎると直訳寄り・高すぎると不安定になるため、
+    # 自然さと一貫性のバランスで既定 0.7。設定値として切替可能に保つ。
+    translate_temperature: float = field(
+        default_factory=lambda: _env_float("REVERB_TRANSLATE_TEMPERATURE", 0.7)
+    )
     translate_system_prompt: str = field(
         default_factory=lambda: os.getenv(
             "REVERB_TRANSLATE_SYSTEM_PROMPT",
             (
-                "です・ます調の自然な日本語ナレーション向け翻訳。字幕用に簡潔に。"
-                "記号・改行を入れない。出力はJSONオブジェクト配列のみ。"
+                "あなたは外国語ナレーション動画を日本語字幕に翻訳するプロの翻訳者です。"
+                "inputSegments の各文を、原文の意味を保ったまま自然で分かりやすい日本語に翻訳してください。\n"
+                "# 翻訳方針\n"
+                "- 逐語訳・直訳をしない。英語の語順や言い回しをそのまま日本語に置き換えず、"
+                "日本語として自然な表現に意訳する。\n"
+                "- 文体は落ち着いた「です・ます」調のナレーション。視聴者がすっと理解できる平易な言葉を選ぶ。\n"
+                "- 不自然なカタカナ語の多用や翻訳調の硬い言い回しを避け、一般的な日本語表現に言い換える。\n"
+                "- contextSegments は前後の文脈を理解するための参考情報であり、翻訳・出力はしない。"
+                "代名詞や省略はこの文脈を踏まえて自然に補う。\n"
+                "- 字幕用に簡潔にする。ただし意味・情報を削らず、勝手な追加もしない。\n"
+                "# 出力形式\n"
+                "inputSegments と同じ id を持つ JSONオブジェクト配列のみを返す。"
                 '各要素は {"id": <入力と同じid>, "text": "<日本語訳>"} の形式。'
-                "説明、余分な文字、コードフェンスは入れない。"
+                "text に記号装飾や改行を入れない。説明・コードフェンス・余分な文字は一切出力しない。"
             ),
         )
     )
@@ -249,6 +264,8 @@ class BackendConfig:
             raise ValueError("REVERB_TRANSLATE_CHUNK_SIZE must be greater than 0")
         if self.translate_context_window < 0:
             raise ValueError("REVERB_TRANSLATE_CONTEXT_WINDOW must be greater than or equal to 0")
+        if self.translate_temperature < 0:
+            raise ValueError("REVERB_TRANSLATE_TEMPERATURE must be greater than or equal to 0")
         if not self.translate_system_prompt:
             raise ValueError("REVERB_TRANSLATE_SYSTEM_PROMPT must not be empty")
         if self.voicevox_synthesis_timeout_seconds <= 0:
@@ -295,6 +312,7 @@ class BackendConfig:
             translate_fallback_threshold=self.translate_fallback_threshold,
             translate_chunk_size=self.translate_chunk_size,
             translate_context_window=self.translate_context_window,
+            translate_temperature=self.translate_temperature,
             translate_system_prompt=self.translate_system_prompt,
             default_speaker_id=self.default_speaker_id,
             default_speaker_name=self.default_speaker_name,

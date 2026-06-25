@@ -16,6 +16,7 @@ class OllamaAdapter:
         timeout_seconds: float,
         translate_timeout_seconds: Optional[float] = None,
         keep_alive: Optional[str] = None,
+        temperature: Optional[float] = None,
     ) -> None:
         # ローカル完結（ルール1）: 翻訳トラフィックを非ローカルへ流さないよう
         # 構築時にループバックのみへ制限する。
@@ -23,6 +24,7 @@ class OllamaAdapter:
         self.timeout_seconds = timeout_seconds
         self.translate_timeout_seconds = translate_timeout_seconds or timeout_seconds
         self.keep_alive = keep_alive
+        self.temperature = temperature
 
     def ping(self) -> bool:
         try:
@@ -68,6 +70,8 @@ class OllamaAdapter:
         }
         if self.keep_alive:
             payload["keep_alive"] = self.keep_alive
+        if self.temperature is not None:
+            payload["options"] = {"temperature": self.temperature}
         response = self._post_json("/api/chat", payload, model)
         message = response.get("message", {})
         content = message.get("content") if isinstance(message, dict) else None
