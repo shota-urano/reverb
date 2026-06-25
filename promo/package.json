@@ -1,0 +1,22 @@
+{
+  "name": "reverb-promo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reverb のマーケ用プロモ動画（Remotion）。共通コンポーネントは App Store プレビューのオーバーレイにも流用する。",
+  "scripts": {
+    "dev": "remotion studio",
+    "render": "remotion render Promo out/reverb-promo.mp4",
+    "render:swap": "remotion render SubtitleSwap out/subtitle-swap.mp4",
+    "render:all": "remotion render"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.380",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "remotion": "4.0.380"
+  },
+  "devDependencies": {
+    "@types/react": "19.0.0",
+    "typescript": "5.6.3"
+  }
+}
