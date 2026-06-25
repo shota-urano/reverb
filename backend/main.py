@@ -37,6 +37,7 @@ def create_app(projects_dir: Optional[Path] = None) -> FastAPI:
         config.dependency_timeout_seconds,
         config.translate_timeout_seconds,
         config.ollama_keep_alive,
+        config.translate_temperature,
     )
     app.state.tts = build_tts_adapter(config)
     app.state.job_store = JobStore(config.projects_dir)
