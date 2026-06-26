@@ -7,8 +7,8 @@ from typing import Optional
 import pytest
 
 from core.artifacts import read_translation, write_transcript
-from core.config import BackendConfig
 from core.errors import StageError
+from core.config import BackendConfig
 from core.job_store import JobStore
 from pipeline.stage import PipelineContext
 from pipeline.translate import TranslateStage
@@ -61,29 +61,27 @@ def test_single_empty_translation_falls_back_to_source(
     assert "using source text for 1 segment(s)" in caplog.text
 
 
-def test_majority_empty_translations_after_retries_raise_translate_incomplete(
+def test_empty_group_translation_falls_back_without_blocking_following_groups(
     tmp_path: Path,
 ) -> None:
-    translator = FakeTranslator(responses=[["", "", "三番目です。"]])
+    translator = FakeTranslator(responses=[[""], ["二番目です。"]])
 
-    with pytest.raises(StageError) as exc_info:
-        _run_translate_stage(
-            tmp_path,
-            translator,
-            [
-                TranscriptSegment(id=1, start=0.0, end=1.0, text="First."),
-                TranscriptSegment(id=2, start=1.0, end=2.0, text="Second."),
-                TranscriptSegment(id=3, start=2.0, end=3.0, text="Third."),
-            ],
-            config_overrides={
-                "translate_max_retries": 0,
-                "translate_retry_initial_wait": 0.0,
-                "translate_fallback_threshold": 0.5,
-            },
-        )
+    translation = _run_translate_stage(
+        tmp_path,
+        translator,
+        [
+            TranscriptSegment(id=1, start=0.0, end=1.0, text="First."),
+            TranscriptSegment(id=2, start=1.0, end=2.0, text="Second."),
+        ],
+        config_overrides={
+            "translate_max_retries": 0,
+            "translate_retry_initial_wait": 0.0,
+            "translate_fallback_threshold": 0.5,
+        },
+    )
 
-    assert exc_info.value.code == "TRANSLATE_INCOMPLETE"
-    assert exc_info.value.retryable is True
+    assert [segment.target for segment in translation.segments] == ["First.", "二番目です。"]
+    assert len(translator.calls) == 2
 
 
 def test_symbol_digit_whitespace_only_segment_passes_through_without_llm_call(
@@ -103,7 +101,7 @@ def test_symbol_digit_whitespace_only_segment_passes_through_without_llm_call(
 
 
 def test_normal_translations_are_returned_unchanged(tmp_path: Path) -> None:
-    translator = FakeTranslator(responses=[["こんにちは。", "世界です。"]])
+    translator = FakeTranslator(responses=[["こんにちは。"], ["世界です。"]])
 
     translation = _run_translate_stage(
         tmp_path,
@@ -118,13 +116,13 @@ def test_normal_translations_are_returned_unchanged(tmp_path: Path) -> None:
         "こんにちは。",
         "世界です。",
     ]
-    assert len(translator.calls) == 1
+    assert len(translator.calls) == 2
 
 
 def test_non_linguistic_segments_remain_in_context_window_for_adjacent_targets(
     tmp_path: Path,
 ) -> None:
-    translator = FakeTranslator(responses=[["こんにちは。", "世界です。"]])
+    translator = FakeTranslator(responses=[["こんにちは。"], ["世界です。"]])
 
     translation = _run_translate_stage(
         tmp_path,
@@ -142,13 +140,13 @@ def test_non_linguistic_segments_remain_in_context_window_for_adjacent_targets(
         "!!!",
         "世界です。",
     ]
-    assert translator.calls[0] == [
+    assert translator.calls[1] == [
         {
             "id": 1,
             "start": 0.0,
             "end": 1.0,
             "text": "Hello.",
-            "contextOnly": False,
+            "contextOnly": True,
         },
         {
             "id": 2,
@@ -208,3 +206,55 @@ def _run_translate_stage(
     stage = TranslateStage(translator)
     stage.run(PipelineContext(config, record, record.project_dir))
     return read_translation(record.project_dir)
+
+
+def test_majority_fallback_exceeds_threshold_raises_stage_error(
+    tmp_path: Path,
+) -> None:
+    # 3グループすべてが空応答 -> source fallback -> 閾値 (0.5) 超過で StageError
+    translator = FakeTranslator(responses=[[""], [""], [""]])
+
+    with pytest.raises(StageError) as exc_info:
+        _run_translate_stage(
+            tmp_path,
+            translator,
+            [
+                TranscriptSegment(id=1, start=0.0, end=1.0, text="First."),
+                TranscriptSegment(id=2, start=1.0, end=2.0, text="Second."),
+                TranscriptSegment(id=3, start=2.0, end=3.0, text="Third."),
+            ],
+            config_overrides={
+                "translate_max_retries": 0,
+                "translate_retry_initial_wait": 0.0,
+                "translate_fallback_threshold": 0.5,
+            },
+        )
+
+    assert exc_info.value.code == "TRANSLATE_INCOMPLETE"
+
+
+def test_single_fallback_within_threshold_succeeds(
+    tmp_path: Path,
+) -> None:
+    # 3グループ中1つだけ fallback (1/3 <= 0.5) -> 成功
+    translator = FakeTranslator(responses=[[""], ["二番目。"], ["三番目。"]])
+
+    translation = _run_translate_stage(
+        tmp_path,
+        translator,
+        [
+            TranscriptSegment(id=1, start=0.0, end=1.0, text="First."),
+            TranscriptSegment(id=2, start=1.0, end=2.0, text="Second."),
+            TranscriptSegment(id=3, start=2.0, end=3.0, text="Third."),
+        ],
+        config_overrides={
+            "translate_max_retries": 0,
+            "translate_retry_initial_wait": 0.0,
+            "translate_fallback_threshold": 0.5,
+        },
+    )
+
+    # fallback したグループ1は source text のまま
+    assert translation.segments[0].target == "First."
+    assert translation.segments[1].target == "二番目。"
+    assert translation.segments[2].target == "三番目。"

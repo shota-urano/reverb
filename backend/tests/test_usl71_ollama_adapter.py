@@ -125,6 +125,46 @@ def test_translate_returns_placeholders_when_response_ids_do_not_match_input_ids
     assert translated == ["", ""]
 
 
+def test_translate_accepts_bare_object_for_single_segment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 文単位翻訳では inputSegments が1件になり、モデルが配列ではなく
+    # 裸のオブジェクトを返すことがある。1要素として受理する。
+    adapter = _adapter_with_raw_content(
+        monkeypatch,
+        '{"id": 15, "text": "自然な日本語の一文。"}',
+    )
+
+    translated = adapter.translate(
+        [{"id": 15, "text": "a full english sentence."}],
+        "qwen3",
+        "en",
+        "system prompt",
+        2,
+    )
+
+    assert translated == ["自然な日本語の一文。"]
+
+
+def test_translate_extracts_object_buried_in_thinking_preamble(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = _adapter_with_raw_content(
+        monkeypatch,
+        '<think>let me translate this</think>\n{"id": 15, "text": "自然な訳。"}',
+    )
+
+    translated = adapter.translate(
+        [{"id": 15, "text": "a full english sentence."}],
+        "qwen3",
+        "en",
+        "system prompt",
+        2,
+    )
+
+    assert translated == ["自然な訳。"]
+
+
 def test_translate_includes_keep_alive_in_chat_payload(monkeypatch: pytest.MonkeyPatch) -> None:
     captured_payload = {}
     adapter = OllamaAdapter(
@@ -232,8 +272,62 @@ def _adapter_with_translation_content(
     return adapter
 
 
+def _adapter_with_raw_content(
+    monkeypatch: pytest.MonkeyPatch,
+    content: str,
+) -> OllamaAdapter:
+    adapter = OllamaAdapter("http://127.0.0.1:11434", timeout_seconds=1)
+
+    def post_json(*_: object) -> dict:
+        return {"message": {"content": content}}
+
+    monkeypatch.setattr(adapter, "_post_json", post_json)
+    return adapter
+
+
 def _translation_segments() -> list[dict[str, object]]:
     return [
         {"id": 0, "text": "Hello"},
         {"id": 1, "text": "World"},
     ]
+
+
+def test_bare_dict_without_text_key_is_not_normalized(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # {'foo': 'bar'} は text キーが無いので単一要素配列に正規化してはならない。
+    # _translation_texts が空の parsed リストを受け取るため翻訳結果は "" になる。
+    adapter = _adapter_with_raw_content(
+        monkeypatch,
+        '{"foo": "bar"}',
+    )
+
+    translated = adapter.translate(
+        [{"id": 1, "text": "Hello world."}],
+        "qwen3",
+        "en",
+        "system prompt",
+        2,
+    )
+
+    assert translated == [""]
+
+
+def test_bare_dict_with_non_str_text_is_not_normalized(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # {'text': 123} は text が str でないので単一要素配列に正規化してはならない。
+    adapter = _adapter_with_raw_content(
+        monkeypatch,
+        '{"id": 1, "text": 123}',
+    )
+
+    translated = adapter.translate(
+        [{"id": 1, "text": "Hello world."}],
+        "qwen3",
+        "en",
+        "system prompt",
+        2,
+    )
+
+    assert translated == [""]
