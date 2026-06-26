@@ -5,12 +5,18 @@ import wave
 from pathlib import Path
 from typing import Callable, Optional, Protocol
 
-from core.artifacts import AUDIO_PATH, VOICEOVER_PATH, get_cue_wav_path, read_subtitles
+from core.artifacts import (
+    AUDIO_PATH,
+    VOICEOVER_PATH,
+    get_cue_wav_path,
+    read_subtitles,
+    write_subtitles,
+)
 from core.errors import StageError
 from core.progress_reporter import _EstimatedProgressReporter
 from pipeline.stage import PipelineContext, Stage
 from pipeline.tts import TtsSynthesizer
-from schemas.artifacts import SubtitleCue
+from schemas.artifacts import Subtitles, SubtitleCue
 from schemas.enums import StageName
 
 logger = logging.getLogger(__name__)
@@ -70,6 +76,8 @@ class MixStage(Stage):
         compressed = 0
         equal_speed = 0
         skipped = 0
+        # 各 cue の音声実配置 (placement_start, 音声長)。字幕の表示同期に使う。
+        placement_by_index: dict[int, tuple[float, float]] = {}
 
         for index, cue in enumerate(subtitles.cues):
             result: tuple[Optional[float], Optional[float], bool] = (None, None, False)
@@ -97,7 +105,10 @@ class MixStage(Stage):
             if duration is not None:
                 placement_start = max(cue.start, next_available_start)
                 cue_inputs.append((path, placement_start))
+                placement_by_index[index] = (placement_start, duration)
                 next_available_start = placement_start + duration
+
+        self._write_audio_aligned_subtitles(context, subtitles, placement_by_index)
 
         logger.info(
             "speed_scale distribution: total=%d compressed(>1.0)=%d "
@@ -118,6 +129,41 @@ class MixStage(Stage):
             ),
         )
         return str(VOICEOVER_PATH)
+
+    def _write_audio_aligned_subtitles(
+        self,
+        context: PipelineContext,
+        subtitles: "Subtitles",
+        placement_by_index: dict[int, tuple[float, float]],
+    ) -> None:
+        """各 cue に音声の実配置時刻 audioStart/audioEnd を付与して書き戻す。
+
+        placement は元の cue.start から計算済み（冪等: 再実行しても start/end 不変なので
+        同じ結果になる）。音声未配置の cue は audioStart/audioEnd を None のまま残し、
+        プレーヤーは元 start/end へフォールバックする。最低表示（ルール4 / 1.5秒）は
+        次に音声配置のある cue の audioStart を超えない範囲で確保する。
+        """
+        if not placement_by_index:
+            return
+        min_duration = context.config.subtitle_min_duration_seconds
+        placed_indices = sorted(placement_by_index)
+        # 各 placed cue の「次の placed cue の配置開始」= 表示を延ばせる上限。
+        next_start = {
+            current: placement_by_index[nxt][0]
+            for current, nxt in zip(placed_indices, placed_indices[1:])
+        }
+        for index in placed_indices:
+            audio_start, audio_duration = placement_by_index[index]
+            raw_end = audio_start + audio_duration
+            desired_end = max(raw_end, audio_start + min_duration)
+            ceiling = next_start.get(index)
+            audio_end = min(desired_end, ceiling) if ceiling is not None else desired_end
+            # 実音声長は必ず覆う（クランプで音声長を下回らせない）。
+            audio_end = max(audio_end, raw_end)
+            cue = subtitles.cues[index]
+            cue.audioStart = audio_start
+            cue.audioEnd = audio_end
+        write_subtitles(context.project_dir, subtitles)
 
     def _run_progress_item(
         self,
