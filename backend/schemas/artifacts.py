@@ -53,6 +53,10 @@ class SubtitleCue(BaseModel):
     end: float
     lines: List[str]
     segmentIds: List[int]
+    # 吹き替え音声の実配置時刻（mix が尺合わせ後の placement を書き込む・任意）。
+    # start/end（元動画時間軸）は不変。プレーヤーは在ればこの窓で表示同期する。
+    audioStart: Optional[float] = None
+    audioEnd: Optional[float] = None
 
 
 class Subtitles(BaseModel):
