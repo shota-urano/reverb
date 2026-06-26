@@ -290,3 +290,44 @@ def _translation_segments() -> list[dict[str, object]]:
         {"id": 0, "text": "Hello"},
         {"id": 1, "text": "World"},
     ]
+
+
+def test_bare_dict_without_text_key_is_not_normalized(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # {'foo': 'bar'} は text キーが無いので単一要素配列に正規化してはならない。
+    # _translation_texts が空の parsed リストを受け取るため翻訳結果は "" になる。
+    adapter = _adapter_with_raw_content(
+        monkeypatch,
+        '{"foo": "bar"}',
+    )
+
+    translated = adapter.translate(
+        [{"id": 1, "text": "Hello world."}],
+        "qwen3",
+        "en",
+        "system prompt",
+        2,
+    )
+
+    assert translated == [""]
+
+
+def test_bare_dict_with_non_str_text_is_not_normalized(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # {'text': 123} は text が str でないので単一要素配列に正規化してはならない。
+    adapter = _adapter_with_raw_content(
+        monkeypatch,
+        '{"id": 1, "text": 123}',
+    )
+
+    translated = adapter.translate(
+        [{"id": 1, "text": "Hello world."}],
+        "qwen3",
+        "en",
+        "system prompt",
+        2,
+    )
+
+    assert translated == [""]

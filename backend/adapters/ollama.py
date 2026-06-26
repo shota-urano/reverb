@@ -162,7 +162,7 @@ def _parse_translation_array(content: str) -> list[object]:
         parsed = _extract_json_array(content)
     # 文単位翻訳では inputSegments が1件になり、モデルが配列ではなく
     # 裸のオブジェクト {"id":..,"text":..} を返すことがある。1要素配列として受理する。
-    if isinstance(parsed, dict):
+    if isinstance(parsed, dict) and isinstance(parsed.get("text"), str):
         return [parsed]
     if not isinstance(parsed, list):
         return []
@@ -195,7 +195,7 @@ def _extract_json_object(content: str) -> object:
             parsed = json.loads(candidate)
         except json.JSONDecodeError:
             continue
-        if isinstance(parsed, dict) and "text" in parsed:
+        if isinstance(parsed, dict) and isinstance(parsed.get("text"), str):
             return parsed
     return []
 

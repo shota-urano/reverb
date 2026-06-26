@@ -7,6 +7,7 @@ from typing import Optional
 import pytest
 
 from core.artifacts import read_translation, write_transcript
+from core.errors import StageError
 from core.config import BackendConfig
 from core.job_store import JobStore
 from pipeline.stage import PipelineContext
@@ -205,3 +206,55 @@ def _run_translate_stage(
     stage = TranslateStage(translator)
     stage.run(PipelineContext(config, record, record.project_dir))
     return read_translation(record.project_dir)
+
+
+def test_majority_fallback_exceeds_threshold_raises_stage_error(
+    tmp_path: Path,
+) -> None:
+    # 3グループすべてが空応答 -> source fallback -> 閾値 (0.5) 超過で StageError
+    translator = FakeTranslator(responses=[[""], [""], [""]])
+
+    with pytest.raises(StageError) as exc_info:
+        _run_translate_stage(
+            tmp_path,
+            translator,
+            [
+                TranscriptSegment(id=1, start=0.0, end=1.0, text="First."),
+                TranscriptSegment(id=2, start=1.0, end=2.0, text="Second."),
+                TranscriptSegment(id=3, start=2.0, end=3.0, text="Third."),
+            ],
+            config_overrides={
+                "translate_max_retries": 0,
+                "translate_retry_initial_wait": 0.0,
+                "translate_fallback_threshold": 0.5,
+            },
+        )
+
+    assert exc_info.value.code == "TRANSLATE_INCOMPLETE"
+
+
+def test_single_fallback_within_threshold_succeeds(
+    tmp_path: Path,
+) -> None:
+    # 3グループ中1つだけ fallback (1/3 <= 0.5) -> 成功
+    translator = FakeTranslator(responses=[[""], ["二番目。"], ["三番目。"]])
+
+    translation = _run_translate_stage(
+        tmp_path,
+        translator,
+        [
+            TranscriptSegment(id=1, start=0.0, end=1.0, text="First."),
+            TranscriptSegment(id=2, start=1.0, end=2.0, text="Second."),
+            TranscriptSegment(id=3, start=2.0, end=3.0, text="Third."),
+        ],
+        config_overrides={
+            "translate_max_retries": 0,
+            "translate_retry_initial_wait": 0.0,
+            "translate_fallback_threshold": 0.5,
+        },
+    )
+
+    # fallback したグループ1は source text のまま
+    assert translation.segments[0].target == "First."
+    assert translation.segments[1].target == "二番目。"
+    assert translation.segments[2].target == "三番目。"

@@ -60,6 +60,8 @@ class TranslateStage(Stage):
             self._warm_up(context, model)
 
         translation_segments: list[TranslationSegment] = []
+        translatable_count: int = 0
+        fallback_count: int = 0
         last_chunk_seconds: Optional[float] = None
         for index, chunk in enumerate(chunks):
             base_progress = index / len(chunks)
@@ -80,13 +82,17 @@ class TranslateStage(Stage):
             started_at = time.monotonic()
             try:
                 for group in chunk:
-                    target = self._translate_group(
+                    target, fell_back = self._translate_group(
                         context,
                         transcript.segments,
                         group,
                         transcript.language,
                         model,
                     )
+                    if _is_translatable_group(group):
+                        translatable_count += 1
+                        if fell_back:
+                            fallback_count += 1
                     translation_segments.append(
                         TranslationSegment(
                             id=group[0].id,
@@ -101,6 +107,16 @@ class TranslateStage(Stage):
             last_chunk_seconds = time.monotonic() - started_at
             context.report_progress(ceiling_progress)
 
+        if (
+            fallback_count > 1
+            and translatable_count > 0
+            and fallback_count / translatable_count > context.config.translate_fallback_threshold
+        ):
+            raise StageError(
+                "TRANSLATE_INCOMPLETE",
+                "Translation returned empty targets for too many source segments.",
+                retryable=True,
+            )
         write_translation(
             context.project_dir,
             Translation(
@@ -119,12 +135,12 @@ class TranslateStage(Stage):
         group: list[TranscriptSegment],
         source_lang: Optional[str],
         model: str,
-    ) -> str:
+    ) -> tuple[str, bool]:
         source = _group_source(group)
         if not source.strip():
-            return ""
+            return "", False
         if is_non_linguistic(source):
-            return source
+            return source, False
 
         request_segments = _context_segments(
             all_segments,
@@ -146,7 +162,7 @@ class TranslateStage(Stage):
                 )
                 shape_error = _translation_shape_error(group[:1], translated)
                 if shape_error is None and translated[0].strip():
-                    return translated[0]
+                    return translated[0], False
                 if shape_error is None:
                     last_translated = translated
                     last_error = StageError(
@@ -159,7 +175,7 @@ class TranslateStage(Stage):
                             "Translation returned an empty target after retries; "
                             "using source text for 1 segment(s)."
                         )
-                        return source
+                        return source, True
                 else:
                     last_error = shape_error
             except StageError as exc:
@@ -174,7 +190,7 @@ class TranslateStage(Stage):
                     "Translation returned an empty target after retries; "
                     "using source text for 1 segment(s)."
                 )
-                return source
+                return source, True
             raise last_error
         raise StageError(
             "TRANSLATE_MISALIGN",
