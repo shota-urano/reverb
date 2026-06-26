@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import time
 import unicodedata
-from typing import Optional, Protocol
+from typing import Optional, Protocol, TypeVar
 
 from core.artifacts import TRANSLATION_PATH, read_transcript, write_translation
 from core.errors import StageError
@@ -13,6 +13,8 @@ from schemas.artifacts import Translation, TranslationSegment, TranscriptSegment
 from schemas.enums import StageName
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
 
 
 class Translator(Protocol):
@@ -38,8 +40,9 @@ class TranslateStage(Stage):
         context.report_progress(0.0)
         transcript = read_transcript(context.project_dir)
         model = context.job.settings.translate.model or context.config.default_translate_model
+        segment_groups = group_segments_by_sentence(transcript.segments)
 
-        if all(not segment.text.strip() for segment in transcript.segments):
+        if not segment_groups:
             write_translation(
                 context.project_dir,
                 Translation(
@@ -52,23 +55,11 @@ class TranslateStage(Stage):
             context.report_progress(1.0)
             return str(TRANSLATION_PATH)
 
-        translated_by_id: dict[int, str] = {}
-        non_empty_segments: list[TranscriptSegment] = []
-        has_linguistic_segments = False
-        for segment in transcript.segments:
-            if not segment.text.strip():
-                translated_by_id[segment.id] = ""
-                continue
-            non_empty_segments.append(segment)
-            if is_non_linguistic(segment.text):
-                translated_by_id[segment.id] = segment.text
-            else:
-                has_linguistic_segments = True
-
-        chunks = list(_chunks(non_empty_segments, context.config.translate_chunk_size))
-        if has_linguistic_segments:
+        chunks = list(_chunks(segment_groups, context.config.translate_chunk_size))
+        if any(_is_translatable_group(group) for group in segment_groups):
             self._warm_up(context, model)
 
+        translation_segments: list[TranslationSegment] = []
         last_chunk_seconds: Optional[float] = None
         for index, chunk in enumerate(chunks):
             base_progress = index / len(chunks)
@@ -88,27 +79,28 @@ class TranslateStage(Stage):
             reporter.start()
             started_at = time.monotonic()
             try:
-                if any(not is_non_linguistic(segment.text) for segment in chunk):
-                    translated = self._translate_chunk(
-                        context, transcript.segments, chunk, transcript.language, model
+                for group in chunk:
+                    target = self._translate_group(
+                        context,
+                        transcript.segments,
+                        group,
+                        transcript.language,
+                        model,
                     )
-                    for segment, target in zip(chunk, translated):
-                        translated_by_id[segment.id] = target
+                    translation_segments.append(
+                        TranslationSegment(
+                            id=group[0].id,
+                            start=group[0].start,
+                            end=group[-1].end,
+                            source=_group_source(group),
+                            target=target,
+                        )
+                    )
             finally:
                 reporter.stop()
             last_chunk_seconds = time.monotonic() - started_at
             context.report_progress(ceiling_progress)
 
-        translation_segments = [
-            TranslationSegment(
-                id=segment.id,
-                start=segment.start,
-                end=segment.end,
-                source=segment.text,
-                target=translated_by_id[segment.id],
-            )
-            for segment in transcript.segments
-        ]
         write_translation(
             context.project_dir,
             Translation(
@@ -119,6 +111,76 @@ class TranslateStage(Stage):
             ),
         )
         return str(TRANSLATION_PATH)
+
+    def _translate_group(
+        self,
+        context: PipelineContext,
+        all_segments: list[TranscriptSegment],
+        group: list[TranscriptSegment],
+        source_lang: Optional[str],
+        model: str,
+    ) -> str:
+        source = _group_source(group)
+        if not source.strip():
+            return ""
+        if is_non_linguistic(source):
+            return source
+
+        request_segments = _context_segments(
+            all_segments,
+            group[0],
+            context.config.translate_context_window,
+        ) + [_group_payload(group, context_only=False)]
+
+        attempts = context.config.translate_max_retries + 1
+        last_error: Optional[StageError] = None
+        last_translated: Optional[list[str]] = None
+        for attempt in range(attempts):
+            try:
+                translated = self.adapter.translate(
+                    request_segments,
+                    model,
+                    source_lang,
+                    context.config.translate_system_prompt,
+                    context.config.translate_context_window,
+                )
+                shape_error = _translation_shape_error(group[:1], translated)
+                if shape_error is None and translated[0].strip():
+                    return translated[0]
+                if shape_error is None:
+                    last_translated = translated
+                    last_error = StageError(
+                        "TRANSLATE_INCOMPLETE",
+                        "Translation returned an empty target for a non-empty source segment.",
+                        retryable=True,
+                    )
+                    if attempt == attempts - 1:
+                        logger.warning(
+                            "Translation returned an empty target after retries; "
+                            "using source text for 1 segment(s)."
+                        )
+                        return source
+                else:
+                    last_error = shape_error
+            except StageError as exc:
+                if not exc.retryable:
+                    raise
+                last_error = exc
+            if attempt < attempts - 1:
+                _sleep_before_retry(context.config.translate_retry_initial_wait, attempt)
+        if last_error is not None:
+            if last_error.code == "TRANSLATE_INCOMPLETE" and last_translated is not None:
+                logger.warning(
+                    "Translation returned an empty target after retries; "
+                    "using source text for 1 segment(s)."
+                )
+                return source
+            raise last_error
+        raise StageError(
+            "TRANSLATE_MISALIGN",
+            "Translated segment count did not match input segment count.",
+            retryable=True,
+        )
 
     def _translate_chunk(
         self,
@@ -209,6 +271,29 @@ def _sleep_before_retry(initial_wait: float, attempt: int) -> None:
         time.sleep(wait_seconds)
 
 
+def group_segments_by_sentence(segments: list[TranscriptSegment]) -> list[list[TranscriptSegment]]:
+    groups: list[list[TranscriptSegment]] = []
+    current: list[TranscriptSegment] = []
+
+    for segment in segments:
+        source = segment.text
+        if not source.strip() or is_non_linguistic(source):
+            if current:
+                groups.append(current)
+                current = []
+            groups.append([segment])
+            continue
+
+        current.append(segment)
+        if _ends_with_sentence_terminal(source):
+            groups.append(current)
+            current = []
+
+    if current:
+        groups.append(current)
+    return groups
+
+
 def is_non_linguistic(text: str) -> bool:
     return not any(_is_linguistic_character(char) for char in text)
 
@@ -297,7 +382,29 @@ def _merge_chunk_targets(
     ]
 
 
-def _chunks(segments: list[TranscriptSegment], chunk_size: int) -> list[list[TranscriptSegment]]:
+def _is_translatable_group(group: list[TranscriptSegment]) -> bool:
+    source = _group_source(group)
+    return bool(source.strip()) and not is_non_linguistic(source)
+
+
+def _group_source(group: list[TranscriptSegment]) -> str:
+    if len(group) == 1:
+        return group[0].text
+    return " ".join(segment.text.strip() for segment in group if segment.text.strip())
+
+
+def _ends_with_sentence_terminal(text: str) -> bool:
+    stripped = text.rstrip()
+    while stripped and stripped[-1] in _SENTENCE_TRAILING_QUOTES:
+        stripped = stripped[:-1].rstrip()
+    return bool(stripped) and stripped[-1] in _SENTENCE_TERMINALS
+
+
+_SENTENCE_TERMINALS = frozenset(".?!。！？")
+_SENTENCE_TRAILING_QUOTES = frozenset("\"'”’»」』）)]}】")
+
+
+def _chunks(segments: list[T], chunk_size: int) -> list[list[T]]:
     size = max(1, chunk_size)
     return [segments[index : index + size] for index in range(0, len(segments), size)]
 
@@ -321,5 +428,15 @@ def _segment_payload(segment: TranscriptSegment, *, context_only: bool) -> dict[
         "start": segment.start,
         "end": segment.end,
         "text": segment.text,
+        "contextOnly": context_only,
+    }
+
+
+def _group_payload(group: list[TranscriptSegment], *, context_only: bool) -> dict[str, object]:
+    return {
+        "id": group[0].id,
+        "start": group[0].start,
+        "end": group[-1].end,
+        "text": _group_source(group),
         "contextOnly": context_only,
     }

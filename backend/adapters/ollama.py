@@ -160,6 +160,10 @@ def _parse_translation_array(content: str) -> list[object]:
         parsed = json.loads(content)
     except json.JSONDecodeError:
         parsed = _extract_json_array(content)
+    # 文単位翻訳では inputSegments が1件になり、モデルが配列ではなく
+    # 裸のオブジェクト {"id":..,"text":..} を返すことがある。1要素配列として受理する。
+    if isinstance(parsed, dict):
+        return [parsed]
     if not isinstance(parsed, list):
         return []
     return parsed
@@ -176,7 +180,49 @@ def _extract_json_array(content: str) -> object:
             return json.loads(candidate)
         except json.JSONDecodeError:
             continue
+    # 配列が無い場合、thinking モデルの前置き等に埋もれた単一オブジェクトを拾う。
+    return _extract_json_object(content)
+
+
+def _extract_json_object(content: str) -> object:
+    for start, char in enumerate(content):
+        if char != "{":
+            continue
+        candidate = _balanced_json_object_candidate(content, start)
+        if candidate is None:
+            continue
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict) and "text" in parsed:
+            return parsed
     return []
+
+
+def _balanced_json_object_candidate(content: str, start: int) -> Optional[str]:
+    depth = 0
+    in_string = False
+    escaped = False
+    for index in range(start, len(content)):
+        char = content[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return content[start : index + 1]
+    return None
 
 
 def _balanced_json_array_candidate(content: str, start: int) -> Optional[str]:

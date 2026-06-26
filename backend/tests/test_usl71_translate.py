@@ -68,7 +68,8 @@ class FakeTranslator:
 def test_translate_happy_path_writes_translation_artifact_and_progress(tmp_path: Path) -> None:
     translator = FakeTranslator(
         responses=[
-            ["こんにちは。", "世界です。"],
+            ["こんにちは。"],
+            ["世界です。"],
             ["続きです。"],
         ]
     )
@@ -124,7 +125,33 @@ def test_translate_all_empty_segments_writes_empty_segments_without_error(tmp_pa
     translation = read_translation(record.project_dir)
     assert record.status == JobState.done
     assert record.stages[StageName.translate].status == StageState.done
-    assert translation.segments == []
+    assert [segment.id for segment in translation.segments] == [0, 1]
+    assert [segment.source for segment in translation.segments] == ["", "   "]
+    assert [segment.target for segment in translation.segments] == ["", ""]
+
+
+def test_translate_writes_sentence_group_as_single_translation_segment(tmp_path: Path) -> None:
+    translator = FakeTranslator(responses=[["自然な一文です。"]])
+
+    record, _ = _run_pipeline(
+        tmp_path,
+        translator,
+        segments=[
+            TranscriptSegment(id=5, start=0.5, end=1.25, text="This is"),
+            TranscriptSegment(id=6, start=1.25, end=2.5, text="one sentence."),
+        ],
+    )
+
+    translation = read_translation(record.project_dir)
+    assert len(translation.segments) == 1
+    assert translation.segments[0].id == 5
+    assert translation.segments[0].start == 0.5
+    assert translation.segments[0].end == 2.5
+    assert translation.segments[0].source == "This is one sentence."
+    assert translation.segments[0].target == "自然な一文です。"
+    assert len(translator.calls) == 1
+    assert translator.calls[0]["segments"][-1]["id"] == 5
+    assert translator.calls[0]["segments"][-1]["text"] == "This is one sentence."
 
 
 def test_translate_ollama_unavailable_error_code_is_preserved(tmp_path: Path) -> None:
@@ -156,10 +183,9 @@ def test_translate_model_missing_error_code_is_preserved(tmp_path: Path) -> None
 def test_translate_misalign_after_retry_fails_with_translate_misalign(tmp_path: Path) -> None:
     record, _ = _run_pipeline(
         tmp_path,
-        FakeTranslator(responses=[["一つだけ。"], ["まだ一つだけ。"]]),
+        FakeTranslator(responses=[[], []]),
         segments=[
             TranscriptSegment(id=0, start=0.0, end=1.0, text="First."),
-            TranscriptSegment(id=1, start=1.0, end=2.0, text="Second."),
         ],
         config_overrides={
             "translate_max_retries": 1,
