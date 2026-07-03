@@ -48,6 +48,34 @@ public struct SidecarConfiguration: Sendable, Equatable {
             arguments: args
         )
     }
+
+    /// `.app` バンドルに同梱したサイドカーを解決する（配布構成・§3.1）。
+    /// `Contents/Resources/python-runtime/bin/python3` が `backend/main.py` を起動する想定。
+    /// パスはバンドル相対で解決し、絶対パスをコードに固定しない（ルール6）。同梱の
+    /// ffmpeg/ffprobe はバックエンドへ環境変数で渡す（PATH 非依存・ローカル完結）。
+    public static func fromBundle(
+        _ bundle: Bundle = .main,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> SidecarConfiguration? {
+        guard let resourceURL = bundle.resourceURL else { return nil }
+        let python = resourceURL.appendingPathComponent("python-runtime/bin/python3")
+        let mainScript = resourceURL.appendingPathComponent("backend/main.py")
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: python.path),
+              fileManager.fileExists(atPath: mainScript.path) else {
+            return nil
+        }
+        let binDir = resourceURL.appendingPathComponent("bin")
+        var env = environment
+        env["REVERB_FFMPEG_BIN"] = binDir.appendingPathComponent("ffmpeg").path
+        env["REVERB_FFPROBE_BIN"] = binDir.appendingPathComponent("ffprobe").path
+        env["PYTHONPATH"] = resourceURL.appendingPathComponent("backend").path
+        return SidecarConfiguration(
+            executableURL: python,
+            arguments: [mainScript.path],
+            environment: env
+        )
+    }
 }
 
 public enum SidecarError: Error, Sendable, Equatable {

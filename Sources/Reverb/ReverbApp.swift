@@ -36,8 +36,10 @@ extension AppModel {
     /// サイドカー起動コマンドが未設定なら、接続時に「未設定」エラーとして UI に表示する。
     @MainActor
     static func makeDefault() -> AppModel {
+        // env 指定（開発時の上書き）を優先し、無ければ同梱バンドル（配布 .app）を解決する。
         let launcher: any SidecarLauncher
-        if let configuration = SidecarConfiguration.fromEnvironment() {
+        if let configuration = SidecarConfiguration.fromEnvironment()
+            ?? SidecarConfiguration.fromBundle() {
             launcher = ProcessSidecarLauncher(configuration: configuration)
         } else {
             launcher = UnconfiguredSidecarLauncher()
