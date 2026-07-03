@@ -7,7 +7,7 @@ import pytest
 
 from core.artifacts import (
     ArtifactVersionError,
-    get_cue_wav_path,
+    get_segment_wav_path,
     read_subtitles,
     read_transcript,
     read_translation,
@@ -66,7 +66,7 @@ def test_artifact_schemas_round_trip_with_canonical_paths(tmp_path: Path) -> Non
     assert read_transcript(tmp_path) == transcript
     assert read_translation(tmp_path) == translation
     assert read_subtitles(tmp_path) == subtitles
-    assert get_cue_wav_path(tmp_path, 7) == tmp_path / "tts" / "cue_0007.wav"
+    assert get_segment_wav_path(tmp_path, 7) == tmp_path / "tts" / "seg_0007.wav"
 
 
 def test_artifact_read_rejects_wrong_version(tmp_path: Path) -> None:

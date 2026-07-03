@@ -213,6 +213,9 @@ class BackendConfig:
         default_factory=lambda: _env_int("REVERB_TTS_CUE_RETRY_COUNT", 2)
     )
 
+    mix_max_drift_seconds: float = field(
+        default_factory=lambda: _env_float("REVERB_MIX_MAX_DRIFT_SECONDS", 2.5)
+    )
     ja_volume: float = 1.0
     original_volume: float = 0.08
     subtitle_target_full_width_chars: int = 20
@@ -288,6 +291,8 @@ class BackendConfig:
             raise ValueError("REVERB_VOICEVOX_SYNTHESIS_TIMEOUT_SECONDS must be greater than 0")
         if self.tts_cue_retry_count < 0:
             raise ValueError("REVERB_TTS_CUE_RETRY_COUNT must be greater than or equal to 0")
+        if self.mix_max_drift_seconds <= 0:
+            raise ValueError("REVERB_MIX_MAX_DRIFT_SECONDS must be greater than 0")
 
     def with_projects_dir(self, projects_dir: Path) -> "BackendConfig":
         return BackendConfig(
@@ -337,6 +342,7 @@ class BackendConfig:
             default_style_id=self.default_style_id,
             voicevox_synthesis_timeout_seconds=self.voicevox_synthesis_timeout_seconds,
             tts_cue_retry_count=self.tts_cue_retry_count,
+            mix_max_drift_seconds=self.mix_max_drift_seconds,
             ja_volume=self.ja_volume,
             original_volume=self.original_volume,
             subtitle_target_full_width_chars=self.subtitle_target_full_width_chars,

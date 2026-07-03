@@ -6,14 +6,27 @@ import wave
 from pathlib import Path
 from typing import Callable, Optional
 
-from core.artifacts import AUDIO_PATH, get_cue_wav_path, write_subtitles, write_transcript
+from core.artifacts import (
+    AUDIO_PATH,
+    get_segment_wav_path,
+    write_subtitles,
+    write_transcript,
+    write_translation,
+)
 from core.config import BackendConfig
 from core.job_store import JobRecord, JobStore
 from pipeline.mix import MixStage
 from pipeline.stage import PipelineContext
 from pipeline.translate import TranslateStage
 from pipeline.tts import TtsStage
-from schemas.artifacts import SubtitleCue, Subtitles, Transcript, TranscriptSegment
+from schemas.artifacts import (
+    SubtitleCue,
+    Subtitles,
+    Transcript,
+    TranscriptSegment,
+    Translation,
+    TranslationSegment,
+)
 from schemas.settings import default_job_settings
 
 
@@ -64,7 +77,7 @@ class SlowMixer:
     def mix_voiceover(
         self,
         original_audio_path: Path,
-        cue_inputs: list[tuple[Path, float]],
+        clip_inputs: list[tuple[Path, float, Optional[float]]],
         out_path: Path,
         duration: float,
         ja_volume: float,
@@ -107,7 +120,7 @@ def test_translate_reports_intermediate_monotonic_progress_per_chunk(tmp_path: P
     assert all(0.0 <= value <= 1.0 for value in progress_values)
 
 
-def test_tts_reports_intermediate_monotonic_progress_per_cue(tmp_path: Path) -> None:
+def test_tts_reports_intermediate_monotonic_progress_per_segment(tmp_path: Path) -> None:
     progress_values: list[float] = []
     context = _context(
         tmp_path,
@@ -117,12 +130,13 @@ def test_tts_reports_intermediate_monotonic_progress_per_cue(tmp_path: Path) -> 
             tts_progress_interval_seconds=0.005,
         ),
     )
-    write_subtitles(
+    write_translation(
         context.project_dir,
-        Subtitles(
-            cues=[
-                SubtitleCue(id=0, start=0.0, end=1.0, lines=["こんにちは。"], segmentIds=[0]),
-            ]
+        Translation(
+            model="local-model",
+            sourceLanguage="en",
+            targetLanguage="ja",
+            segments=[_translation_segment(0, 0.0, 1.0, "こんにちは。")],
         ),
     )
 
@@ -154,9 +168,18 @@ def test_mix_reports_intermediate_monotonic_progress_while_mixing(tmp_path: Path
             ]
         ),
     )
-    cue_path = get_cue_wav_path(context.project_dir, 0)
-    cue_path.parent.mkdir(parents=True, exist_ok=True)
-    cue_path.write_bytes(_wav_bytes(1.0))
+    write_translation(
+        context.project_dir,
+        Translation(
+            model="local-model",
+            sourceLanguage="en",
+            targetLanguage="ja",
+            segments=[_translation_segment(0, 0.0, 1.0, "長い音声。")],
+        ),
+    )
+    segment_path = get_segment_wav_path(context.project_dir, 0)
+    segment_path.parent.mkdir(parents=True, exist_ok=True)
+    segment_path.write_bytes(_wav_bytes(1.0))
 
     MixStage(SlowMixer(progress_values), SlowSynthesizer(progress_values)).run(context)
 
@@ -210,3 +233,15 @@ def _wav_bytes(duration: float, sample_rate: int = 24_000) -> bytes:
         wav.setframerate(sample_rate)
         wav.writeframes(b"\x00" * frame_count * 2)
     return buffer.getvalue()
+
+
+def _translation_segment(
+    segment_id: int, start: float, end: float, target: str
+) -> TranslationSegment:
+    return TranslationSegment(
+        id=segment_id,
+        start=start,
+        end=end,
+        source="source",
+        target=target,
+    )

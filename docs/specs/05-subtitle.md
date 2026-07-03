@@ -50,7 +50,7 @@
 `subtitles.json`（[`09`](./09-data-model.md) §3.4）。
 
 - `lines`: 表示行配列（最大2要素）。
-- `id`: 0 始まり連番。**TTS の `tts/cue_%04d.wav` と一致**させる。
+- `id`: 0 始まり連番（表示専用）。TTS 音声は translation segment 単位（`tts/seg_%04d.wav`）で合成され、cue とは `segmentIds` 経由で対応する。
 - `segmentIds`: 由来翻訳セグメント id（トレーサビリティ）。
 
 ---

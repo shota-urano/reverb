@@ -2,21 +2,23 @@ from __future__ import annotations
 
 import logging
 import wave
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional, Protocol
 
 from core.artifacts import (
     AUDIO_PATH,
     VOICEOVER_PATH,
-    get_cue_wav_path,
+    get_segment_wav_path,
     read_subtitles,
+    read_translation,
     write_subtitles,
 )
 from core.errors import StageError
 from core.progress_reporter import _EstimatedProgressReporter
 from pipeline.stage import PipelineContext, Stage
 from pipeline.tts import TtsSynthesizer
-from schemas.artifacts import Subtitles, SubtitleCue
+from schemas.artifacts import Subtitles, TranslationSegment
 from schemas.enums import StageName
 
 logger = logging.getLogger(__name__)
@@ -24,6 +26,7 @@ logger = logging.getLogger(__name__)
 _MIN_SPEED_SCALE = 1.0
 _MAX_SPEED_SCALE = 1.3
 _SPEED_SCALE_EPSILON = 0.000001
+_ZERO_DURATION_EPSILON = 0.000001
 _FATAL_STAGE_ERROR_CODES = {"TTS_UNAVAILABLE", "SPEAKER_INVALID"}
 
 
@@ -31,12 +34,21 @@ class AudioMixer(Protocol):
     def mix_voiceover(
         self,
         original_audio_path: Path,
-        cue_inputs: list[tuple[Path, float]],
+        clip_inputs: list[tuple[Path, float, Optional[float]]],
         out_path: Path,
         duration: float,
         ja_volume: float,
         original_volume: float,
     ) -> None: ...
+
+
+@dataclass
+class _PlacedAudio:
+    segment_id: int
+    path: Path
+    start: float
+    duration: float
+    length_limit: Optional[float] = None
 
 
 class MixStage(Stage):
@@ -49,16 +61,19 @@ class MixStage(Stage):
     def run(self, context: PipelineContext) -> str:
         context.report_progress(0.0)
         subtitles = read_subtitles(context.project_dir)
-        total_cues = len(subtitles.cues)
-        total_progress_items = total_cues + 1
-        cue_inputs: list[tuple[Path, float]] = []
+        translation = read_translation(context.project_dir)
+        segments = sorted(translation.segments, key=lambda segment: (segment.start, segment.id))
+        total_segments = len(segments)
+        total_progress_items = total_segments + 1
+        placed_audio: list[_PlacedAudio] = []
 
-        if total_cues == 0:
+        if total_segments == 0:
+            self._write_audio_aligned_subtitles(context, subtitles, {})
             self._run_progress_item(
                 context,
                 index=0,
                 total_items=total_progress_items,
-                work=lambda: self._mix(context, cue_inputs, context.job.duration),
+                work=lambda: self._mix(context, [], context.job.duration),
             )
             return str(VOICEOVER_PATH)
 
@@ -72,20 +87,18 @@ class MixStage(Stage):
             "styleId",
             context.config.default_style_id,
         )
-        next_available_start = 0.0
         compressed = 0
         equal_speed = 0
         skipped = 0
-        # 各 cue の音声実配置 (placement_start, 音声長)。字幕の表示同期に使う。
-        placement_by_index: dict[int, tuple[float, float]] = {}
+        drift_cap_fired = 0
 
-        for index, cue in enumerate(subtitles.cues):
+        for index, segment in enumerate(segments):
             result: tuple[Optional[float], Optional[float], bool] = (None, None, False)
 
             def prepare() -> None:
                 nonlocal result
-                path = get_cue_wav_path(context.project_dir, cue.id)
-                result = self._prepare_cue(context, cue, path, speaker_id, style_id)
+                path = get_segment_wav_path(context.project_dir, segment.id)
+                result = self._prepare_segment(context, segment, path, speaker_id, style_id)
 
             self._run_progress_item(
                 context,
@@ -93,7 +106,7 @@ class MixStage(Stage):
                 total_items=total_progress_items,
                 work=prepare,
             )
-            path = get_cue_wav_path(context.project_dir, cue.id)
+            path = get_segment_wav_path(context.project_dir, segment.id)
             duration, speed_scale, skipped_target = result
             if skipped_target:
                 skipped += 1
@@ -102,30 +115,74 @@ class MixStage(Stage):
                     compressed += 1
                 elif abs(speed_scale - 1.0) <= _SPEED_SCALE_EPSILON:
                     equal_speed += 1
-            if duration is not None:
-                placement_start = max(cue.start, next_available_start)
-                cue_inputs.append((path, placement_start))
-                placement_by_index[index] = (placement_start, duration)
-                next_available_start = placement_start + duration
+            if duration is not None and duration > _ZERO_DURATION_EPSILON:
+                previous_end = (
+                    placed_audio[-1].start + placed_audio[-1].duration
+                    if placed_audio
+                    else segment.start
+                )
+                uncapped_start = max(segment.start, previous_end)
+                capped_start = segment.start + context.config.mix_max_drift_seconds
+                placement_start = min(uncapped_start, capped_start)
+                if uncapped_start > capped_start:
+                    drift_cap_fired += 1
+                if placed_audio and placement_start < previous_end:
+                    previous = placed_audio[-1]
+                    trimmed_duration = max(0.0, placement_start - previous.start)
+                    previous.duration = trimmed_duration
+                    previous.length_limit = trimmed_duration
+                    # 全カットされたクリップはゼロ長ストリームとして ffmpeg に
+                    # 渡さない（job.duration=0 経路では apad が無く amix が壊れる）。
+                    if trimmed_duration <= _ZERO_DURATION_EPSILON:
+                        placed_audio.pop()
+                placed_audio.append(
+                    _PlacedAudio(
+                        segment_id=segment.id,
+                        path=path,
+                        start=placement_start,
+                        duration=duration,
+                    )
+                )
 
-        self._write_audio_aligned_subtitles(context, subtitles, placement_by_index)
+        # 旧成果物スキーム（tts/cue_*.wav）のプロジェクトを途中再開した場合など、
+        # 発話すべきセグメントがあるのに1つも配置できないときは、日本語音声ゼロの
+        # voiceover を黙って完成させず明示的に失敗させる。
+        if not placed_audio and _has_speakable_segment(segments):
+            raise StageError(
+                "MIX_INPUTS_MISSING",
+                "No TTS segment audio (tts/seg_*.wav) was found for any translation "
+                "segment. Legacy per-cue TTS artifacts are incompatible; reprocess "
+                "the video to regenerate TTS output.",
+            )
+
+        placement_by_segment = {
+            placed.segment_id: (placed.start, placed.duration) for placed in placed_audio
+        }
+        self._write_audio_aligned_subtitles(context, subtitles, placement_by_segment)
 
         logger.info(
             "speed_scale distribution: total=%d compressed(>1.0)=%d "
             "equal_speed(=1.0)=%d skipped(target<=0)=%d",
-            total_cues,
+            total_segments,
             compressed,
             equal_speed,
             skipped,
         )
+        logger.info(
+            "mix drift cap summary: total=%d fired=%d max_drift_seconds=%.3f",
+            total_segments,
+            drift_cap_fired,
+            context.config.mix_max_drift_seconds,
+        )
+        clip_inputs = [(placed.path, placed.start, placed.length_limit) for placed in placed_audio]
         self._run_progress_item(
             context,
-            index=total_cues,
+            index=total_segments,
             total_items=total_progress_items,
             work=lambda: self._mix(
                 context,
-                cue_inputs,
-                _output_duration(context, subtitles.cues, cue_inputs),
+                clip_inputs,
+                _output_duration(context, segments, clip_inputs),
             ),
         )
         return str(VOICEOVER_PATH)
@@ -134,35 +191,63 @@ class MixStage(Stage):
         self,
         context: PipelineContext,
         subtitles: "Subtitles",
-        placement_by_index: dict[int, tuple[float, float]],
+        placement_by_segment: dict[int, tuple[float, float]],
     ) -> None:
         """各 cue に音声の実配置時刻 audioStart/audioEnd を付与して書き戻す。
 
-        placement は元の cue.start から計算済み（冪等: 再実行しても start/end 不変なので
-        同じ結果になる）。音声未配置の cue は audioStart/audioEnd を None のまま残し、
-        プレーヤーは元 start/end へフォールバックする。最低表示（ルール4 / 1.5秒）は
-        次に音声配置のある cue の audioStart を超えない範囲で確保する。
+        segment の配置区間を、その segment に属する cue の文字数比で連続分割する。
+        音声未配置の cue は None とし、最低表示時間は次の配置 cue の開始を上限にする。
         """
-        if not placement_by_index:
-            return
+        for cue in subtitles.cues:
+            cue.audioStart = None
+            cue.audioEnd = None
+
+        portions_by_index: dict[int, list[tuple[float, float]]] = {}
+        for segment_id, (audio_start, audio_duration) in sorted(
+            placement_by_segment.items(), key=lambda item: item[1][0]
+        ):
+            cue_indices = [
+                index for index, cue in enumerate(subtitles.cues) if segment_id in cue.segmentIds
+            ]
+            if not cue_indices:
+                continue
+            weights = [len(_cue_text(subtitles.cues[index].lines)) for index in cue_indices]
+            total_weight = sum(weights)
+            if total_weight <= 0:
+                weights = [1] * len(cue_indices)
+                total_weight = len(cue_indices)
+            cursor = audio_start
+            placed_end = audio_start + audio_duration
+            for position, (cue_index, weight) in enumerate(zip(cue_indices, weights)):
+                portion_end = (
+                    placed_end
+                    if position == len(cue_indices) - 1
+                    else cursor + audio_duration * weight / total_weight
+                )
+                portions_by_index.setdefault(cue_index, []).append((cursor, portion_end))
+                cursor = portion_end
+
         min_duration = context.config.subtitle_min_duration_seconds
-        placed_indices = sorted(placement_by_index)
-        # 各 placed cue の「次の placed cue の配置開始」= 表示を延ばせる上限。
+        placed_indices = sorted(portions_by_index)
+        raw_intervals = {
+            index: (
+                min(start for start, _ in portions_by_index[index]),
+                max(end for _, end in portions_by_index[index]),
+            )
+            for index in placed_indices
+        }
         next_start = {
-            current: placement_by_index[nxt][0]
+            current: raw_intervals[nxt][0]
             for current, nxt in zip(placed_indices, placed_indices[1:])
         }
         for index in placed_indices:
-            audio_start, audio_duration = placement_by_index[index]
-            raw_end = audio_start + audio_duration
+            audio_start, raw_end = raw_intervals[index]
             desired_end = max(raw_end, audio_start + min_duration)
             ceiling = next_start.get(index)
             audio_end = min(desired_end, ceiling) if ceiling is not None else desired_end
-            # 実音声長は必ず覆う（クランプで音声長を下回らせない）。
-            audio_end = max(audio_end, raw_end)
             cue = subtitles.cues[index]
             cue.audioStart = audio_start
-            cue.audioEnd = audio_end
+            cue.audioEnd = max(audio_start, audio_end)
         write_subtitles(context.project_dir, subtitles)
 
     def _run_progress_item(
@@ -190,41 +275,41 @@ class MixStage(Stage):
             reporter.stop()
         context.report_progress(ceiling_progress)
 
-    def _prepare_cue(
+    def _prepare_segment(
         self,
         context: PipelineContext,
-        cue: SubtitleCue,
+        segment: TranslationSegment,
         path: Path,
         speaker_id: int,
         style_id: int,
     ) -> tuple[Optional[float], Optional[float], bool]:
         duration = _wav_duration_seconds(path)
         if duration is None:
-            _warn_missing_cue(cue.id, path)
+            _warn_missing_segment(segment.id, path)
             return None, None, False
 
-        target = cue.end - cue.start
+        target = segment.end - segment.start
         if target <= 0:
             logger.warning(
-                "Skipping TTS cue with non-positive target duration.",
-                extra={"cue_id": cue.id, "start": cue.start, "end": cue.end},
+                "Skipping TTS segment with non-positive target duration.",
+                extra={"segment_id": segment.id, "start": segment.start, "end": segment.end},
             )
             return None, None, True
 
         speed_scale = _clamp(duration / target, _MIN_SPEED_SCALE, _MAX_SPEED_SCALE)
         logger.info(
-            "cue speed_scale",
-            extra={"cue_id": cue.id, "speed_scale": speed_scale},
+            "segment speed_scale",
+            extra={"segment_id": segment.id, "speed_scale": speed_scale},
         )
         if abs(speed_scale - 1.0) <= _SPEED_SCALE_EPSILON:
             return duration, speed_scale, False
 
-        text = _cue_text(cue.lines)
+        text = segment.target.strip()
         if not text:
             return duration, speed_scale, False
 
-        resynthesized = self._resynthesize_cue(
-            context, text, speaker_id, style_id, speed_scale, cue.id
+        resynthesized = self._resynthesize_segment(
+            context, text, speaker_id, style_id, speed_scale, segment.id
         )
         if resynthesized is None:
             return None, speed_scale, False
@@ -232,18 +317,18 @@ class MixStage(Stage):
         path.write_bytes(resynthesized)
         resynthesized_duration = _wav_duration_seconds(path)
         if resynthesized_duration is None:
-            _warn_missing_cue(cue.id, path)
+            _warn_missing_segment(segment.id, path)
             return None, speed_scale, False
         return resynthesized_duration, speed_scale, False
 
-    def _resynthesize_cue(
+    def _resynthesize_segment(
         self,
         context: PipelineContext,
         text: str,
         speaker_id: int,
         style_id: int,
         speed_scale: float,
-        cue_id: int,
+        segment_id: int,
     ) -> Optional[bytes]:
         attempts = context.config.tts_cue_retry_count + 1
         last_error: Optional[StageError] = None
@@ -257,20 +342,20 @@ class MixStage(Stage):
                 last_error = exc
 
         logger.warning(
-            "TTS cue resynthesis failed after retries; continuing without this cue.",
-            extra={"cue_id": cue_id, "error": str(last_error)},
+            "TTS segment resynthesis failed after retries; continuing without this segment.",
+            extra={"segment_id": segment_id, "error": str(last_error)},
         )
         return None
 
     def _mix(
         self,
         context: PipelineContext,
-        cue_inputs: list[tuple[Path, float]],
+        clip_inputs: list[tuple[Path, float, Optional[float]]],
         duration: float,
     ) -> None:
         self.mixer.mix_voiceover(
             context.project_dir / AUDIO_PATH,
-            cue_inputs,
+            clip_inputs,
             context.project_dir / VOICEOVER_PATH,
             duration,
             context.config.ja_volume,
@@ -285,6 +370,10 @@ def _setting_value(settings, field_name: str, default: int) -> int:
 
 def _cue_text(lines: list[str]) -> str:
     return "".join(line.strip() for line in lines).strip()
+
+
+def _has_speakable_segment(segments: list[TranslationSegment]) -> bool:
+    return any(segment.target.strip() and segment.end - segment.start > 0 for segment in segments)
 
 
 def _clamp(value: float, minimum: float, maximum: float) -> float:
@@ -304,24 +393,26 @@ def _wav_duration_seconds(path: Path) -> Optional[float]:
         return None
 
 
-def _warn_missing_cue(cue_id: int, path: Path) -> None:
+def _warn_missing_segment(segment_id: int, path: Path) -> None:
     logger.warning(
-        "Skipping missing or empty TTS cue; original audio remains for this interval.",
-        extra={"cue_id": cue_id, "path": str(path)},
+        "Skipping missing or empty TTS segment; original audio remains for this interval.",
+        extra={"segment_id": segment_id, "path": str(path)},
     )
 
 
 def _output_duration(
     context: PipelineContext,
-    cues: list[SubtitleCue],
-    cue_inputs: list[tuple[Path, float]],
+    segments: list[TranslationSegment],
+    clip_inputs: list[tuple[Path, float, Optional[float]]],
 ) -> float:
     if context.job.duration > 0:
         return context.job.duration
-    cue_end = max((cue.end for cue in cues), default=0.0)
+    segment_end = max((segment.end for segment in segments), default=0.0)
     placed_end = 0.0
-    for path, start in cue_inputs:
-        cue_duration = _wav_duration_seconds(path)
-        if cue_duration is not None:
-            placed_end = max(placed_end, start + cue_duration)
-    return max(cue_end, placed_end)
+    for path, start, length_limit in clip_inputs:
+        clip_duration = _wav_duration_seconds(path)
+        if clip_duration is not None:
+            if length_limit is not None:
+                clip_duration = min(clip_duration, length_limit)
+            placed_end = max(placed_end, start + clip_duration)
+    return max(segment_end, placed_end)

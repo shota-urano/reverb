@@ -129,11 +129,17 @@ def test_extract_sets_muxer_from_final_suffix_before_tmp_output_path(
 
 
 def test_voiceover_filter_graph_disables_amix_normalization() -> None:
-    filter_graph = _voiceover_filter_graph([(Path("ja.wav"), 1.0)], 10.0, 1.0, 0.08)
+    filter_graph = _voiceover_filter_graph([(Path("ja.wav"), 1.0, None)], 10.0, 1.0, 0.08)
 
     assert "normalize=0" in filter_graph
     assert "volume=0.08" in filter_graph
     assert "volume=1.0" in filter_graph
+
+
+def test_voiceover_filter_graph_trims_clip_before_placement_delay() -> None:
+    filter_graph = _voiceover_filter_graph([(Path("ja.wav"), 3.0, 1.5)], 10.0, 1.0, 0.08)
+
+    assert "[1:a]atrim=0:1.500000,adelay=3000:all=1" in filter_graph
 
 
 def test_mix_voiceover_command_sets_wav_muxer_before_output_path() -> None:
@@ -141,7 +147,7 @@ def test_mix_voiceover_command_sets_wav_muxer_before_output_path() -> None:
 
     command = FFmpegAdapter()._mix_voiceover_command(
         Path("original.wav"),
-        [(Path("ja.wav"), 1.0)],
+        [(Path("ja.wav"), 1.0, None)],
         out_path,
         10.0,
         1.0,

@@ -25,8 +25,8 @@ class ArtifactVersionError(ValueError):
     pass
 
 
-def get_cue_wav_path(project_dir: Path, cue_id: int) -> Path:
-    return project_dir / TTS_DIR / f"cue_{cue_id:04d}.wav"
+def get_segment_wav_path(project_dir: Path, segment_id: int) -> Path:
+    return project_dir / TTS_DIR / f"seg_{segment_id:04d}.wav"
 
 
 def write_transcript(project_dir: Path, transcript: Transcript) -> Path:

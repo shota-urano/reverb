@@ -24,8 +24,8 @@
 ├── translation.json      # ③ 翻訳の出力            → 04-translation.md
 ├── subtitles.json        # ④ 字幕整形の出力         → 05-subtitle.md
 ├── tts/
-│   ├── cue_0000.wav      # ⑤ キュー単位の TTS 音声  → 06-tts.md
-│   └── cue_0001.wav
+│   ├── seg_0000.wav      # ⑤ 翻訳セグメント単位の TTS 音声  → 06-tts.md
+│   └── seg_0001.wav
 └── voiceover.wav         # ⑥ 尺合わせ・ミックス出力  → 07-mix-sync.md
 ```
 
@@ -131,14 +131,14 @@
 }
 ```
 
-- `id`: cue 連番（0 始まり）。`tts/cue_%04d.wav` のインデックスと一致させる。
+- `id`: cue 連番（0 始まり）。表示専用の連番であり、TTS ファイル名とは対応しない（TTS は translation segment 単位）。
 - `lines`: 表示行（最大2行 / 各行 全角20字前後）。
 - `segmentIds`: 由来となった翻訳セグメント id（トレーサビリティ用）。
 - `start`/`end`: 元動画時間軸上の表示区間。
 
-### 3.5 TTS 音声（`tts/cue_%04d.wav`）→ [06](./06-tts.md)
+### 3.5 TTS 音声（`tts/seg_%04d.wav`）→ [06](./06-tts.md)
 
-- cue ごとに1ファイル。ファイル名インデックス = `cue.id`。
+- translation segment ごとに1ファイル。ファイル名インデックス = `segment.id`（字幕表示のための cue 分割とは独立）。
 - 生成時の `speedScale` 等の付随情報は `project.json` または別 `tts/manifest.json`（任意）に記録してよい（尺合わせの実値は [07](./07-mix-sync.md) が決定）。
 
 ### 3.6 `voiceover.wav`（最終ミックス）→ [07](./07-mix-sync.md)
