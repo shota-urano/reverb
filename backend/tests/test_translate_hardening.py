@@ -132,7 +132,7 @@ def test_non_linguistic_segments_remain_in_context_window_for_adjacent_targets(
             TranscriptSegment(id=2, start=1.0, end=2.0, text="!!!"),
             TranscriptSegment(id=3, start=2.0, end=3.0, text="World."),
         ],
-        config_overrides={"translate_chunk_size": 3},
+        config_overrides={"translate_chunk_size": 3, "translate_chunk_groups": 2},
     )
 
     assert [segment.target for segment in translation.segments] == [
@@ -146,6 +146,7 @@ def test_non_linguistic_segments_remain_in_context_window_for_adjacent_targets(
             "start": 0.0,
             "end": 1.0,
             "text": "Hello.",
+            "target": "こんにちは。",
             "contextOnly": True,
         },
         {
@@ -153,6 +154,7 @@ def test_non_linguistic_segments_remain_in_context_window_for_adjacent_targets(
             "start": 1.0,
             "end": 2.0,
             "text": "!!!",
+            "target": "!!!",
             "contextOnly": True,
         },
         {
@@ -161,6 +163,7 @@ def test_non_linguistic_segments_remain_in_context_window_for_adjacent_targets(
             "end": 3.0,
             "text": "World.",
             "contextOnly": False,
+            "targetChars": 6,
         },
     ]
 
@@ -190,7 +193,11 @@ def _run_translate_stage(
     config_overrides: Optional[dict[str, object]] = None,
 ) -> Translation:
     config = BackendConfig(
-        **{"translate_retry_initial_wait": 0.0, **(config_overrides or {})},
+        **{
+            "translate_retry_initial_wait": 0.0,
+            "translate_chunk_groups": 1,
+            **(config_overrides or {}),
+        },
     ).with_projects_dir(tmp_path)
     store = JobStore(config.projects_dir)
     record = store.create("/tmp/input.mp4", default_job_settings(config))
