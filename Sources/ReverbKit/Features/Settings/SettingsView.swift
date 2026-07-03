@@ -81,6 +81,7 @@ public struct SettingsView: View {
                 ttsSection
                 volumeSection
                 dependencySection
+                versionSection
                 scopeNote
                 actions
             }
@@ -212,6 +213,30 @@ public struct SettingsView: View {
                 Text("依存エンジンの状態を取得できませんでした。")
                     .font(.callout)
                     .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    // MARK: - バージョン / ビルド出所
+
+    /// アプリのビルド出所（git コミット＋日時）とバックエンド version を表示する。
+    /// 「本当に最新の .app か」を利用者がアプリ側で確認するための手がかり（配布ビルドのみ実値）。
+    private var versionSection: some View {
+        let build = BuildInfo.current()
+        return SettingsSection(title: "バージョン", systemImage: "info.circle") {
+            settingRow(label: "アプリ", disabled: false) {
+                Text(build.displayText)
+                    .font(.body.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .accessibilityLabel("アプリ ビルド \(build.displayText)")
+            }
+            settingRow(label: "バックエンド", disabled: false) {
+                Text(viewModel.health?.version ?? "—")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .accessibilityLabel("バックエンド バージョン \(viewModel.health?.version ?? "不明")")
             }
         }
     }

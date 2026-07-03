@@ -16,7 +16,7 @@ TEST_FLAGS := -Xswiftc -F -Xswiftc $(CLT_FW) \
               -Xlinker -rpath -Xlinker $(CLT_LIB)
 endif
 
-.PHONY: build test run clean
+.PHONY: build test run clean app
 
 build:
 	swift build
@@ -26,6 +26,10 @@ test:
 
 run:
 	swift run Reverb
+
+# 配布可能な自己完結 .app を dist/Reverb.app に生成する（scripts/build_app.sh）。
+app:
+	./scripts/build_app.sh
 
 clean:
 	swift package clean
