@@ -12,8 +12,8 @@ from core.config import BackendConfig
 from core.errors import StageError
 from core.job_store import JobStore
 from pipeline.stage import PipelineContext
-from pipeline.translate import TranslateStage
-from schemas.artifacts import Transcript, TranscriptSegment, Translation
+from pipeline.translate import TranslateStage, _confirmed_context_segments
+from schemas.artifacts import Transcript, TranscriptSegment, Translation, TranslationSegment
 from schemas.settings import default_job_settings
 
 
@@ -56,7 +56,10 @@ def test_translates_configured_number_of_sentence_groups_per_request(tmp_path: P
     translation = _run_translate(
         tmp_path,
         translator,
-        [_segment(index, float(index), float(index + 1), f"Sentence {index}.") for index in range(5)],
+        [
+            _segment(index, float(index), float(index + 1), f"Sentence {index}.")
+            for index in range(5)
+        ],
         translate_chunk_groups=2,
     )
 
@@ -65,7 +68,13 @@ def test_translates_configured_number_of_sentence_groups_per_request(tmp_path: P
         [2, 3],
         [4],
     ]
-    assert [segment.target for segment in translation.segments] == ["一。", "二。", "三。", "四。", "五。"]
+    assert [segment.target for segment in translation.segments] == [
+        "一。",
+        "二。",
+        "三。",
+        "四。",
+        "五。",
+    ]
 
 
 def test_passes_previous_confirmed_source_target_pairs_as_context(tmp_path: Path) -> None:
@@ -100,6 +109,20 @@ def test_passes_previous_confirmed_source_target_pairs_as_context(tmp_path: Path
             "contextOnly": True,
         },
     ]
+
+
+def test_confirmed_context_segments_returns_empty_when_context_window_is_zero() -> None:
+    confirmed_segments = [
+        TranslationSegment(
+            id=1,
+            start=0.0,
+            end=1.0,
+            source="Previous.",
+            target="直前の訳。",
+        )
+    ]
+
+    assert _confirmed_context_segments(confirmed_segments, 0) == []
 
 
 def test_adds_target_chars_from_speaking_duration(tmp_path: Path) -> None:
@@ -197,9 +220,7 @@ def test_ollama_accepts_jsonl_object_lines_response(
     # 返すことがある（実機で全リトライがこの形式だった）。全オブジェクトを回収する。
     adapter = OllamaAdapter("http://127.0.0.1:11434", timeout_seconds=1)
     content = (
-        '{"id": 1, "text": "一。"}\n'
-        '{"id": 2, "text": "二。"}\n'
-        '{"id": 3, "text": "三。"}'
+        '{"id": 1, "text": "一。"}\n' '{"id": 2, "text": "二。"}\n' '{"id": 3, "text": "三。"}'
     )
     monkeypatch.setattr(adapter, "_post_json", lambda *_: {"message": {"content": content}})
 
@@ -216,6 +237,27 @@ def test_ollama_accepts_jsonl_object_lines_response(
     )
 
     assert translated == ["一。", "二。", "三。"]
+
+
+def test_ollama_maps_string_response_ids_to_numeric_input_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = OllamaAdapter("http://127.0.0.1:11434", timeout_seconds=1)
+    content = '[{"id": "1", "text": "一。"}, {"id": "2", "text": "二。"}]'
+    monkeypatch.setattr(adapter, "_post_json", lambda *_: {"message": {"content": content}})
+
+    translated = adapter.translate(
+        [
+            {"id": 1, "text": "One.", "targetChars": 6},
+            {"id": 2, "text": "Two.", "targetChars": 6},
+        ],
+        "local-model",
+        "en",
+        "system prompt",
+        4,
+    )
+
+    assert translated == ["一。", "二。"]
 
 
 def test_ollama_accepts_superset_response_with_context_echo(

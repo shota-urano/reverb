@@ -210,76 +210,6 @@ class TranslateStage(Stage):
             retryable=True,
         )
 
-    def _translate_group(
-        self,
-        context: PipelineContext,
-        all_segments: list[TranscriptSegment],
-        group: list[TranscriptSegment],
-        source_lang: Optional[str],
-        model: str,
-    ) -> tuple[str, bool]:
-        source = _group_source(group)
-        if not source.strip():
-            return "", False
-        if is_non_linguistic(source):
-            return source, False
-
-        request_segments = _context_segments(
-            all_segments,
-            group[0],
-            context.config.translate_context_window,
-        ) + [_group_payload(group, context_only=False)]
-
-        attempts = context.config.translate_max_retries + 1
-        last_error: Optional[StageError] = None
-        last_translated: Optional[list[str]] = None
-        for attempt in range(attempts):
-            try:
-                translated = self.adapter.translate(
-                    request_segments,
-                    model,
-                    source_lang,
-                    context.config.translate_system_prompt,
-                    context.config.translate_context_window,
-                )
-                shape_error = _translation_shape_error(group[:1], translated)
-                if shape_error is None and translated[0].strip():
-                    return translated[0], False
-                if shape_error is None:
-                    last_translated = translated
-                    last_error = StageError(
-                        "TRANSLATE_INCOMPLETE",
-                        "Translation returned an empty target for a non-empty source segment.",
-                        retryable=True,
-                    )
-                    if attempt == attempts - 1:
-                        logger.warning(
-                            "Translation returned an empty target after retries; "
-                            "using source text for 1 segment(s)."
-                        )
-                        return source, True
-                else:
-                    last_error = shape_error
-            except StageError as exc:
-                if not exc.retryable:
-                    raise
-                last_error = exc
-            if attempt < attempts - 1:
-                _sleep_before_retry(context.config.translate_retry_initial_wait, attempt)
-        if last_error is not None:
-            if last_error.code == "TRANSLATE_INCOMPLETE" and last_translated is not None:
-                logger.warning(
-                    "Translation returned an empty target after retries; "
-                    "using source text for 1 segment(s)."
-                )
-                return source, True
-            raise last_error
-        raise StageError(
-            "TRANSLATE_MISALIGN",
-            "Translated segment count did not match input segment count.",
-            retryable=True,
-        )
-
     def _translate_chunk(
         self,
         context: PipelineContext,
@@ -482,15 +412,15 @@ def _merge_group_targets(
     *,
     fallback_ids: Optional[set[int]] = None,
 ) -> list[tuple[str, bool]]:
-    targets_by_id = {
-        group[0].id: target for group, target in zip(translatable_groups, translated)
-    }
+    targets_by_id = {group[0].id: target for group, target in zip(translatable_groups, translated)}
     fallback_ids = fallback_ids or set()
     return [
         (
-            targets_by_id[group[0].id]
-            if group[0].id in targets_by_id
-            else _passthrough_target(group),
+            (
+                targets_by_id[group[0].id]
+                if group[0].id in targets_by_id
+                else _passthrough_target(group)
+            ),
             group[0].id in fallback_ids,
         )
         for group in groups
@@ -605,6 +535,8 @@ def _confirmed_context_segments(
     confirmed_segments: list[TranslationSegment],
     context_window: int,
 ) -> list[dict[str, object]]:
+    if context_window <= 0:
+        return []
     prior = [segment for segment in confirmed_segments if segment.source.strip()]
     return [
         {

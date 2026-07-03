@@ -276,8 +276,8 @@ def _translation_texts(
     parsed: list[object],
     input_segments: list[dict[str, object]],
 ) -> list[str]:
-    input_ids = [segment.get("id") for segment in input_segments]
-    by_id: dict[object, dict[str, object]] = {}
+    input_ids = [str(segment.get("id")) for segment in input_segments]
+    by_id: dict[str, dict[str, object]] = {}
     has_id_items = False
     can_map_by_id = bool(input_ids)
 
@@ -286,7 +286,7 @@ def _translation_texts(
             can_map_by_id = False
             continue
         has_id_items = True
-        item_id = item["id"]
+        item_id = str(item["id"])
         if item_id in by_id:
             can_map_by_id = False
             continue
