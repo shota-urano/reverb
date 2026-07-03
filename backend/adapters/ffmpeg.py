@@ -204,7 +204,7 @@ class FFmpegAdapter:
     def mix_voiceover(
         self,
         original_audio_path: Path,
-        cue_inputs: list[tuple[Path, float]],
+        clip_inputs: list[tuple[Path, float, Optional[float]]],
         out_path: Path,
         duration: float,
         ja_volume: float,
@@ -220,7 +220,7 @@ class FFmpegAdapter:
         tmp_path = out_path.with_name(f"{out_path.name}.tmp")
         command = self._mix_voiceover_command(
             original_audio_path,
-            cue_inputs,
+            clip_inputs,
             tmp_path,
             duration,
             ja_volume,
@@ -244,17 +244,17 @@ class FFmpegAdapter:
     def _mix_voiceover_command(
         self,
         original_audio_path: Path,
-        cue_inputs: list[tuple[Path, float]],
+        clip_inputs: list[tuple[Path, float, Optional[float]]],
         out_path: Path,
         duration: float,
         ja_volume: float,
         original_volume: float,
     ) -> list[str]:
         command = [self.ffmpeg_bin, "-i", str(original_audio_path)]
-        for path, _ in cue_inputs:
+        for path, _, _ in clip_inputs:
             command.extend(["-i", str(path)])
 
-        filter_complex = _voiceover_filter_graph(cue_inputs, duration, ja_volume, original_volume)
+        filter_complex = _voiceover_filter_graph(clip_inputs, duration, ja_volume, original_volume)
         command.extend(
             [
                 "-filter_complex",
@@ -273,7 +273,7 @@ class FFmpegAdapter:
 
 
 def _voiceover_filter_graph(
-    cue_inputs: list[tuple[Path, float]],
+    clip_inputs: list[tuple[Path, float, Optional[float]]],
     duration: float,
     ja_volume: float,
     original_volume: float,
@@ -282,11 +282,12 @@ def _voiceover_filter_graph(
     parts = [f"[0:a]volume={original_volume}{limit_filter},asetpts=N/SR/TB[orig]"]
     labels = ["[orig]"]
 
-    for index, (_, start) in enumerate(cue_inputs):
+    for index, (_, start, length_limit) in enumerate(clip_inputs):
         delay_ms = max(0, int(round(start * 1000)))
         label = f"cue{index}"
+        clip_trim = f"atrim=0:{length_limit:.6f}," if length_limit is not None else ""
         parts.append(
-            f"[{index + 1}:a]adelay={delay_ms}:all=1,"
+            f"[{index + 1}:a]{clip_trim}adelay={delay_ms}:all=1,"
             f"volume={ja_volume}{limit_filter},asetpts=N/SR/TB[{label}]"
         )
         labels.append(f"[{label}]")

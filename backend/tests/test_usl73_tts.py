@@ -4,13 +4,13 @@ import wave
 from pathlib import Path
 from typing import Optional
 
-from core.artifacts import TTS_DIR, get_cue_wav_path, write_subtitles
+from core.artifacts import TTS_DIR, get_segment_wav_path, write_translation
 from core.config import BackendConfig
 from core.errors import StageError
 from core.job_store import JobRecord, JobStore
 from pipeline.stub_stages import StubStage
 from pipeline.tts import TtsStage
-from schemas.artifacts import SubtitleCue, Subtitles
+from schemas.artifacts import Translation, TranslationSegment
 from schemas.enums import JobState, StageName, StageState
 from schemas.settings import default_job_settings
 from services.pipeline_runner import PipelineRunner
@@ -49,23 +49,23 @@ class FakeVoicevox:
         return _wav_bytes()
 
 
-def test_tts_writes_wav_per_cue_and_reports_progress(tmp_path: Path) -> None:
+def test_tts_writes_wav_per_segment_and_reports_progress(tmp_path: Path) -> None:
     voicevox = FakeVoicevox(responses=[b"wav-0", b"wav-1"])
 
     record, notifications = _run_pipeline(
         tmp_path,
         voicevox,
-        cues=[
-            SubtitleCue(id=0, start=0.0, end=1.0, lines=["こんにちは。"], segmentIds=[0]),
-            SubtitleCue(id=1, start=1.0, end=2.0, lines=["世界です。"], segmentIds=[1]),
+        segments=[
+            _segment(0, 0.0, 1.0, "こんにちは。"),
+            _segment(1, 1.0, 2.0, "世界です。"),
         ],
     )
 
     assert record.status == JobState.done
     assert record.stages[StageName.tts].status == StageState.done
     assert record.stages[StageName.tts].artifact == str(TTS_DIR)
-    assert get_cue_wav_path(record.project_dir, 0).read_bytes() == b"wav-0"
-    assert get_cue_wav_path(record.project_dir, 1).read_bytes() == b"wav-1"
+    assert get_segment_wav_path(record.project_dir, 0).read_bytes() == b"wav-0"
+    assert get_segment_wav_path(record.project_dir, 1).read_bytes() == b"wav-1"
     assert voicevox.calls == [
         {
             "text": "こんにちは。",
@@ -90,7 +90,7 @@ def test_tts_writes_wav_per_cue_and_reports_progress(tmp_path: Path) -> None:
 def test_tts_empty_input_creates_directory_and_finishes(tmp_path: Path) -> None:
     voicevox = FakeVoicevox()
 
-    record, _ = _run_pipeline(tmp_path, voicevox, cues=[])
+    record, _ = _run_pipeline(tmp_path, voicevox, segments=[])
 
     assert record.status == JobState.done
     assert record.stages[StageName.tts].status == StageState.done
@@ -99,7 +99,7 @@ def test_tts_empty_input_creates_directory_and_finishes(tmp_path: Path) -> None:
     assert voicevox.calls == []
 
 
-def test_tts_cue_failure_after_retries_writes_silent_placeholder_and_continues(
+def test_tts_segment_failure_after_retries_writes_silent_placeholder_and_continues(
     tmp_path: Path,
 ) -> None:
     error = StageError("TTS_SYNTHESIS_FAILED", "temporary failure", retryable=True)
@@ -108,26 +108,26 @@ def test_tts_cue_failure_after_retries_writes_silent_placeholder_and_continues(
     record, _ = _run_pipeline(
         tmp_path,
         voicevox,
-        cues=[
-            SubtitleCue(id=0, start=0.0, end=1.0, lines=["失敗します。"], segmentIds=[0]),
-            SubtitleCue(id=1, start=1.0, end=2.0, lines=["続きです。"], segmentIds=[1]),
+        segments=[
+            _segment(0, 0.0, 1.0, "失敗します。"),
+            _segment(1, 1.0, 2.0, "続きです。"),
         ],
         cue_retry_count=1,
     )
 
-    failed_cue_path = get_cue_wav_path(record.project_dir, 0)
+    failed_segment_path = get_segment_wav_path(record.project_dir, 0)
     assert record.status == JobState.done
     assert record.stages[StageName.tts].status == StageState.done
     assert len(voicevox.calls) == 3
-    with wave.open(str(failed_cue_path), "rb") as wav:
+    with wave.open(str(failed_segment_path), "rb") as wav:
         assert wav.getnchannels() == 1
         assert wav.getframerate() == 24000
         assert wav.getsampwidth() == 2
         assert wav.getnframes() == 12000
-    assert get_cue_wav_path(record.project_dir, 1).exists()
+    assert get_segment_wav_path(record.project_dir, 1).exists()
 
 
-def test_tts_unavailable_before_any_cue_fails_retryable(tmp_path: Path) -> None:
+def test_tts_unavailable_before_any_segment_fails_retryable(tmp_path: Path) -> None:
     voicevox = FakeVoicevox(
         errors={
             "こんにちは。": [
@@ -139,9 +139,7 @@ def test_tts_unavailable_before_any_cue_fails_retryable(tmp_path: Path) -> None:
     record, _ = _run_pipeline(
         tmp_path,
         voicevox,
-        cues=[
-            SubtitleCue(id=0, start=0.0, end=1.0, lines=["こんにちは。"], segmentIds=[0]),
-        ],
+        segments=[_segment(0, 0.0, 1.0, "こんにちは。")],
         cue_retry_count=0,
     )
 
@@ -156,13 +154,21 @@ def _run_pipeline(
     tmp_path: Path,
     voicevox: FakeVoicevox,
     *,
-    cues: list[SubtitleCue],
+    segments: list[TranslationSegment],
     cue_retry_count: int = 1,
 ) -> tuple[JobRecord, list]:
     config = BackendConfig(tts_cue_retry_count=cue_retry_count).with_projects_dir(tmp_path)
     store = JobStore(config.projects_dir)
     record = store.create("/tmp/input.mp4", default_job_settings(config))
-    write_subtitles(record.project_dir, Subtitles(cues=cues))
+    write_translation(
+        record.project_dir,
+        Translation(
+            model="local-model",
+            sourceLanguage="en",
+            targetLanguage="ja",
+            segments=segments,
+        ),
+    )
 
     notifications = []
     runner = PipelineRunner(
@@ -204,13 +210,23 @@ def test_tts_non_stage_error_propagates_and_fails_job(tmp_path: Path) -> None:
     record, _ = _run_pipeline(
         tmp_path,
         voicevox,  # type: ignore[arg-type]
-        cues=[
-            SubtitleCue(id=0, start=0.0, end=1.0, lines=["テスト文。"], segmentIds=[0]),
-        ],
+        segments=[_segment(0, 0.0, 1.0, "テスト文。")],
         cue_retry_count=1,
     )
 
-    failed_cue_path = get_cue_wav_path(record.project_dir, 0)
+    failed_segment_path = get_segment_wav_path(record.project_dir, 0)
     assert record.status == JobState.failed
     assert record.stages[StageName.tts].status == StageState.failed
-    assert not failed_cue_path.exists(), "非StageErrorのとき無音プレースホルダを書いてはならない"
+    assert (
+        not failed_segment_path.exists()
+    ), "非StageErrorのとき無音プレースホルダを書いてはならない"
+
+
+def _segment(segment_id: int, start: float, end: float, target: str) -> TranslationSegment:
+    return TranslationSegment(
+        id=segment_id,
+        start=start,
+        end=end,
+        source="source",
+        target=target,
+    )

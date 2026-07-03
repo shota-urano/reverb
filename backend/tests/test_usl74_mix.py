@@ -11,16 +11,17 @@ import pytest
 from core.artifacts import (
     AUDIO_PATH,
     VOICEOVER_PATH,
-    get_cue_wav_path,
+    get_segment_wav_path,
     read_subtitles,
     write_subtitles,
+    write_translation,
 )
 from core.config import BackendConfig
 from core.errors import StageError
 from core.job_store import JobRecord, JobStore
 from pipeline.mix import MixStage
 from pipeline.stage import PipelineContext
-from schemas.artifacts import SubtitleCue, Subtitles
+from schemas.artifacts import SubtitleCue, Subtitles, Translation, TranslationSegment
 from schemas.enums import JobState, StageName, StageState
 from schemas.settings import default_job_settings
 from services.job_service import build_pipeline_stages
@@ -35,7 +36,7 @@ class FakeMixer:
     def mix_voiceover(
         self,
         original_audio_path: Path,
-        cue_inputs: list[tuple[Path, float]],
+        clip_inputs: list[tuple[Path, float, Optional[float]]],
         out_path: Path,
         duration: float,
         ja_volume: float,
@@ -44,7 +45,7 @@ class FakeMixer:
         self.calls.append(
             {
                 "original_audio_path": original_audio_path,
-                "cue_inputs": cue_inputs,
+                "clip_inputs": clip_inputs,
                 "out_path": out_path,
                 "duration": duration,
                 "ja_volume": ja_volume,
@@ -114,9 +115,9 @@ def test_mix_places_cues_from_start_times_outputs_voiceover_and_reports_progress
     assert mixer.calls == [
         {
             "original_audio_path": record.project_dir / AUDIO_PATH,
-            "cue_inputs": [
-                (get_cue_wav_path(record.project_dir, 0), 0.0),
-                (get_cue_wav_path(record.project_dir, 1), 2.0),
+            "clip_inputs": [
+                (get_segment_wav_path(record.project_dir, 0), 0.0, None),
+                (get_segment_wav_path(record.project_dir, 1), 2.0, None),
             ],
             "out_path": record.project_dir / VOICEOVER_PATH,
             "duration": 5.0,
@@ -159,9 +160,9 @@ def test_mix_clamps_speed_scale_resynthesizes_and_passes_configured_volumes(
             "speed_scale": 1.3,
         },
     ]
-    assert mixer.calls[0]["cue_inputs"] == [
-        (get_cue_wav_path(record.project_dir, 0), 0.0),
-        (get_cue_wav_path(record.project_dir, 1), 1.3),
+    assert mixer.calls[0]["clip_inputs"] == [
+        (get_segment_wav_path(record.project_dir, 0), 0.0, None),
+        (get_segment_wav_path(record.project_dir, 1), 1.3, None),
     ]
     assert mixer.calls[0]["ja_volume"] == 0.7
     assert mixer.calls[0]["original_volume"] == 0.12
@@ -186,10 +187,12 @@ def test_mix_keeps_shorter_than_target_cues_at_equal_speed_without_resynthesizin
 
     assert record.status == JobState.done
     assert voicevox.calls == []
-    assert mixer.calls[0]["cue_inputs"] == [(get_cue_wav_path(record.project_dir, 0), 0.0)]
+    assert mixer.calls[0]["clip_inputs"] == [
+        (get_segment_wav_path(record.project_dir, 0), 0.0, None)
+    ]
     assert any(
-        log_record.message == "cue speed_scale"
-        and log_record.cue_id == 0
+        log_record.message == "segment speed_scale"
+        and log_record.segment_id == 0
         and log_record.speed_scale == 1.0
         for log_record in caplog.records
     )
@@ -214,8 +217,10 @@ def test_mix_missing_cue_warns_and_continues(tmp_path: Path, caplog) -> None:
 
     assert record.status == JobState.done
     assert record.stages[StageName.mix].status == StageState.done
-    assert mixer.calls[0]["cue_inputs"] == [(get_cue_wav_path(record.project_dir, 1), 1.5)]
-    assert "missing or empty TTS cue" in caplog.text
+    assert mixer.calls[0]["clip_inputs"] == [
+        (get_segment_wav_path(record.project_dir, 1), 1.5, None)
+    ]
+    assert "missing or empty TTS segment" in caplog.text
 
 
 def test_mix_ffmpeg_failure_fails_job_with_mix_failed(tmp_path: Path) -> None:
@@ -259,9 +264,9 @@ def test_mix_writes_audio_aligned_subtitle_times_with_drift(tmp_path: Path) -> N
 
     subtitles = read_subtitles(record.project_dir)
     # audioStart は mixer に渡した配置時刻と一致する。
-    assert mixer.calls[0]["cue_inputs"] == [
-        (get_cue_wav_path(record.project_dir, 0), pytest.approx(0.0)),
-        (get_cue_wav_path(record.project_dir, 1), pytest.approx(1.3)),
+    assert mixer.calls[0]["clip_inputs"] == [
+        (get_segment_wav_path(record.project_dir, 0), pytest.approx(0.0), None),
+        (get_segment_wav_path(record.project_dir, 1), pytest.approx(1.3), None),
     ]
     assert subtitles.cues[0].audioStart == pytest.approx(0.0)
     assert subtitles.cues[0].audioEnd == pytest.approx(1.3)  # 次cueの配置開始でクランプ
@@ -346,10 +351,28 @@ def _run_pipeline(
     record.duration = duration
     (record.project_dir / AUDIO_PATH).write_bytes(_wav_bytes(duration))
     write_subtitles(record.project_dir, Subtitles(cues=cues))
+    write_translation(
+        record.project_dir,
+        Translation(
+            model="local-model",
+            sourceLanguage="en",
+            targetLanguage="ja",
+            segments=[
+                TranslationSegment(
+                    id=cue.segmentIds[0],
+                    start=cue.start,
+                    end=cue.end,
+                    source="source",
+                    target="".join(cue.lines),
+                )
+                for cue in cues
+            ],
+        ),
+    )
     for cue_id, cue_duration in cue_durations.items():
-        cue_path = get_cue_wav_path(record.project_dir, cue_id)
-        cue_path.parent.mkdir(parents=True, exist_ok=True)
-        cue_path.write_bytes(_wav_bytes(cue_duration))
+        segment_path = get_segment_wav_path(record.project_dir, cue_id)
+        segment_path.parent.mkdir(parents=True, exist_ok=True)
+        segment_path.write_bytes(_wav_bytes(cue_duration))
 
     notifications = []
     runner = PipelineRunner(

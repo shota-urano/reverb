@@ -15,8 +15,8 @@
 
 | | 内容 |
 |---|---|
-| 入力 | `subtitles.json` の cue 列（[`05`](./05-subtitle.md)） |
-| 出力 | `tts/cue_%04d.wav`（cue ごとに1ファイル。[`09-data-model.md`](./09-data-model.md) §3.5） |
+| 入力 | `translation.json` の translation segment 列（[`04`](./04-translation.md)） |
+| 出力 | `tts/seg_%04d.wav`（translation segment ごとに1ファイル。[`09-data-model.md`](./09-data-model.md) §3.5） |
 | エンジン | **AivisSpeech 既定 / VOICEVOX 選択可**（ローカル HTTP API） |
 
 ---
@@ -35,7 +35,7 @@
 
 ## 4. 合成方針
 
-- cue 単位で1ファイル生成（`cue.id` = ファイルインデックス）。
+- translation segment 単位で1ファイル生成（`segment.id` = ファイルインデックス）。字幕表示のために分割された cue 単位では合成しない。
 - VOICEVOX 互換APIのフロー: テキスト → `audio_query` → 必要なら `speedScale` 等を設定 → `synthesis`。
 - AivisSpeech では `intonationScale` の意味が VOICEVOX と異なるため、`audio_query` の既定値を尊重し、尺合わせに必要な `speedScale` のみ上書きする。
 - **`speedScale` は尺合わせ（[`07-mix-sync.md`](./07-mix-sync.md)）で決定する値を用いる**。本ステージ単体では等速（1.0）で生成し、尺合わせで再合成 or speedScale 指定再生成する方式を基本とする（最終的な責務分担は 07 §尺合わせ手順に従う）。
@@ -47,9 +47,9 @@
 
 ## 5. 処理詳細
 
-1. cue を順に VOICEVOX へ送り合成。進捗は cue 処理数 / 総 cue 数で 0.0〜1.0。
-2. `tts/cue_%04d.wav` を書き出し。
-3. 全 cue 完了でステージ `done`。
+1. translation segment を順に TTS エンジンへ送り合成。進捗は segment 処理数 / 総 segment 数で 0.0〜1.0。
+2. `tts/seg_%04d.wav` を書き出し（空 target の segment はファイルを作らずスキップ）。
+3. 全 segment 完了でステージ `done`。
 
 ---
 

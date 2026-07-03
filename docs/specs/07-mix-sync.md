@@ -15,7 +15,7 @@ cue ごとの日本語 TTS 音声を、元動画の発話タイミングに合�
 
 | | 内容 |
 |---|---|
-| 入力 | `tts/cue_%04d.wav`（[`06`](./06-tts.md)）、`subtitles.json` の cue タイミング（[`05`](./05-subtitle.md)）、元音声 |
+| 入力 | `tts/seg_%04d.wav`（[`06`](./06-tts.md)）、`translation.json` の segment タイミング、`subtitles.json` の cue 対応（[`05`](./05-subtitle.md)）、元音声 |
 | 出力 | `voiceover.wav`（全長ミックス。[`09-data-model.md`](./09-data-model.md) §3.6） |
 | ツール | **ffmpeg**（サブプロセス）、TTS 再合成（speedScale 適用時） |
 
@@ -41,13 +41,16 @@ cue ごとの日本語 TTS 音声を、元動画の発話タイミングに合�
 
 ### 3.2 ② 無音区間で吸収
 
-- cue 間のギャップ（無音区間）に、はみ出した音声を逃がす／間を詰めることで全体の累積ズレを抑える。
-- 元の発話開始タイミングを基準に配置し、後続への押し出しを無音区間で吸収する。
+- segment 間のギャップ（無音区間）に、はみ出した音声を逃がす／間を詰めることで全体の累積ズレを抑える。
+- 元の発話開始タイミング（`segment.start`）を基準に配置し、後続への押し出しを無音区間で吸収する。
+- 配置式: `placement_start = min(max(segment.start, 直前音声の終了), segment.start + 最大ドリフト)`。
 
-### 3.3 ③ 残差許容
+### 3.3 ③ 残差許容（ドリフト上限）
 
-- ②でも吸収しきれないズレは許容する。リップシンクは目標にしない。
-- 数値（speedScale 範囲・許容ズレ）はプロトタイプで実測しながら調整余地あり（方針は確定）。
+- ②でも吸収しきれないズレは、**最大ドリフト**（`mix_max_drift_seconds`・既定 2.5 秒・env `REVERB_MIX_MAX_DRIFT_SECONDS`）で打ち切って許容する。遅延を後続 segment に累積させない（USL-111）。
+- 上限打ち切りで直前音声と重なる場合は、**直前 segment 音声の末尾をトリム**する（単一話者ボイスオーバーで同声の重なりを避けるため。ffmpeg `atrim`）。
+- 字幕 cue の `audioStart`/`audioEnd` は、segment の実配置区間（トリム後）を cue の文字数比で連続按分して書き戻す（表示は音声に追従）。
+- リップシンクは目標にしない。数値（speedScale 範囲・最大ドリフト）はプロトタイプで実測しながら調整余地あり（方針は確定）。
 
 ---
 
@@ -85,7 +88,8 @@ cue ごとの日本語 TTS 音声を、元動画の発話タイミングに合�
 
 | 事象 | 対応 |
 |------|------|
-| 一部 cue 音声欠落 | 当該区間は元音声のみ（無音 TTS）で継続、warning |
+| 一部 segment 音声欠落 | 当該区間は元音声のみ（無音 TTS）で継続、warning |
+| 全 segment 音声欠落（発話すべき segment があるのに `tts/seg_*.wav` が皆無。旧 `cue_*.wav` 世代プロジェクトの途中再開等） | `failed`（code: `MIX_INPUTS_MISSING`）。動画の再処理を促す |
 | ffmpeg 失敗 | `failed`（code: `MIX_FAILED`、stderr を message に） |
 
 ---
