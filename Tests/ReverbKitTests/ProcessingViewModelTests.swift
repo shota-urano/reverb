@@ -78,6 +78,29 @@ import Foundation
         #expect(vm.status == .canceled) // 遅延イベントで巻き戻さない
     }
 
+    @Test func terminalStatusIgnoresLateNonTerminalSnapshot() {
+        // SSE とポーリングの並走で、done 確定後に取得済みの古い running
+        // スナップショットが遅れて適用され得る（USL-112）。巻き戻さない。
+        let (vm, _) = makeVM(snapshots: [status(.queued)])
+        vm.apply(.done(JobDoneEvent(
+            projectId: "p",
+            result: JobResult(projectId: "p", videoPath: "/v.mp4", voiceoverPath: "/vo.wav", subtitlesPath: "/s.json", duration: 10)
+        )))
+        vm.apply(status(.running, stage: .translate, progress: 0.3))
+        #expect(vm.status == .done)
+        #expect(vm.progress == 1)
+    }
+
+    @Test func terminalSnapshotStillAppliesOverTerminalState() {
+        // 終了→終了の更新は許容する（バックエンド確定値のエラー詳細等を反映できる）。
+        let failure = BackendErrorBody(code: "MIX_FAILED", stage: "mix", message: "mix failed", retryable: false)
+        let (vm, _) = makeVM(snapshots: [status(.queued)])
+        vm.apply(status(.canceled))
+        vm.apply(status(.failed, stage: .mix, progress: 0.9, error: failure))
+        #expect(vm.status == .failed)
+        #expect(vm.failure?.code == "MIX_FAILED")
+    }
+
     // MARK: - 派生状態
 
     @Test func isTerminalCoversAllStates() {
