@@ -185,7 +185,10 @@ public final class ProcessingViewModel {
     // MARK: - リデューサ（テスト対象）
 
     /// スナップショット（完全な状態）を反映する。
+    /// SSE とポーリングが並走するため、終了確定後に取得済みの古い非終了
+    /// スナップショットが遅れて届き得る。終了状態を巻き戻さない（USL-112）。
     func apply(_ snapshot: JobStatus) {
+        if isTerminal && !Self.isTerminal(snapshot.status) { return }
         status = snapshot.status
         currentStage = snapshot.currentStage
         progress = snapshot.progress
