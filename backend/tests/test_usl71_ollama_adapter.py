@@ -49,7 +49,7 @@ def test_translate_orders_translation_objects_by_input_segment_id(
     assert translated == ["Hello", "World"]
 
 
-def test_translate_returns_empty_string_for_non_dict_element(
+def test_translate_raises_misalign_for_non_dict_element_in_id_response(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     adapter = _adapter_with_translation_content(
@@ -57,15 +57,16 @@ def test_translate_returns_empty_string_for_non_dict_element(
         [{"id": 0, "text": "Hello"}, "not a dict"],
     )
 
-    translated = adapter.translate(
-        _translation_segments(),
-        "qwen3",
-        "en",
-        "system prompt",
-        2,
-    )
+    with pytest.raises(StageError) as exc_info:
+        adapter.translate(
+            _translation_segments(),
+            "qwen3",
+            "en",
+            "system prompt",
+            2,
+        )
 
-    assert translated == ["Hello", ""]
+    assert exc_info.value.code == "TRANSLATE_MISALIGN"
 
 
 def test_translate_returns_empty_string_for_missing_text(
@@ -106,7 +107,7 @@ def test_translate_falls_back_to_positional_order_when_ids_are_missing(
     assert translated == ["Hello", "World"]
 
 
-def test_translate_returns_placeholders_when_response_ids_do_not_match_input_ids(
+def test_translate_raises_misalign_when_response_ids_do_not_match_input_ids(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     adapter = _adapter_with_translation_content(
@@ -114,15 +115,16 @@ def test_translate_returns_placeholders_when_response_ids_do_not_match_input_ids
         [{"id": 10, "text": "Hello"}, {"id": 11, "text": "World"}],
     )
 
-    translated = adapter.translate(
-        _translation_segments(),
-        "qwen3",
-        "en",
-        "system prompt",
-        2,
-    )
+    with pytest.raises(StageError) as exc_info:
+        adapter.translate(
+            _translation_segments(),
+            "qwen3",
+            "en",
+            "system prompt",
+            2,
+        )
 
-    assert translated == ["", ""]
+    assert exc_info.value.code == "TRANSLATE_MISALIGN"
 
 
 def test_translate_accepts_bare_object_for_single_segment(

@@ -278,6 +278,7 @@ def _run_pipeline(
     overrides = config_overrides or {}
     config = BackendConfig(
         translate_chunk_size=chunk_size,
+        translate_chunk_groups=1,
         translate_context_window=2,
         **overrides,
     ).with_projects_dir(tmp_path)

@@ -81,27 +81,31 @@ class TranslateStage(Stage):
             reporter.start()
             started_at = time.monotonic()
             try:
-                for group in chunk:
-                    target, fell_back = self._translate_group(
+                for request_groups in _chunks(chunk, context.config.translate_chunk_groups):
+                    translated_groups = self._translate_groups(
                         context,
-                        transcript.segments,
-                        group,
+                        request_groups,
+                        translation_segments,
                         transcript.language,
                         model,
                     )
-                    if _is_translatable_group(group):
-                        translatable_count += 1
-                        if fell_back:
-                            fallback_count += 1
-                    translation_segments.append(
-                        TranslationSegment(
-                            id=group[0].id,
-                            start=group[0].start,
-                            end=group[-1].end,
-                            source=_group_source(group),
-                            target=target,
+                    for group, (target, fell_back) in zip(
+                        request_groups,
+                        translated_groups,
+                    ):
+                        if _is_translatable_group(group):
+                            translatable_count += 1
+                            if fell_back:
+                                fallback_count += 1
+                        translation_segments.append(
+                            TranslationSegment(
+                                id=group[0].id,
+                                start=group[0].start,
+                                end=group[-1].end,
+                                source=_group_source(group),
+                                target=target,
+                            )
                         )
-                    )
             finally:
                 reporter.stop()
             last_chunk_seconds = time.monotonic() - started_at
@@ -128,25 +132,29 @@ class TranslateStage(Stage):
         )
         return str(TRANSLATION_PATH)
 
-    def _translate_group(
+    def _translate_groups(
         self,
         context: PipelineContext,
-        all_segments: list[TranscriptSegment],
-        group: list[TranscriptSegment],
+        groups: list[list[TranscriptSegment]],
+        confirmed_segments: list[TranslationSegment],
         source_lang: Optional[str],
         model: str,
-    ) -> tuple[str, bool]:
-        source = _group_source(group)
-        if not source.strip():
-            return "", False
-        if is_non_linguistic(source):
-            return source, False
+    ) -> list[tuple[str, bool]]:
+        translatable_groups = [group for group in groups if _is_translatable_group(group)]
+        if not translatable_groups:
+            return [(_passthrough_target(group), False) for group in groups]
 
-        request_segments = _context_segments(
-            all_segments,
-            group[0],
+        request_segments = _confirmed_context_segments(
+            confirmed_segments,
             context.config.translate_context_window,
-        ) + [_group_payload(group, context_only=False)]
+        ) + [
+            _group_payload(
+                group,
+                context_only=False,
+                target_chars=_target_chars(group, context.config.translate_chars_per_sec),
+            )
+            for group in translatable_groups
+        ]
 
         attempts = context.config.translate_max_retries + 1
         last_error: Optional[StageError] = None
@@ -160,9 +168,12 @@ class TranslateStage(Stage):
                     context.config.translate_system_prompt,
                     context.config.translate_context_window,
                 )
-                shape_error = _translation_shape_error(group[:1], translated)
-                if shape_error is None and translated[0].strip():
-                    return translated[0], False
+                shape_error = _translation_group_shape_error(translatable_groups, translated)
+                if shape_error is None and not _empty_group_translation_indexes(
+                    translatable_groups,
+                    translated,
+                ):
+                    return _merge_group_targets(groups, translatable_groups, translated)
                 if shape_error is None:
                     last_translated = translated
                     last_error = StageError(
@@ -171,11 +182,11 @@ class TranslateStage(Stage):
                         retryable=True,
                     )
                     if attempt == attempts - 1:
-                        logger.warning(
-                            "Translation returned an empty target after retries; "
-                            "using source text for 1 segment(s)."
+                        return _fallback_empty_group_translations(
+                            groups,
+                            translatable_groups,
+                            translated,
                         )
-                        return source, True
                 else:
                     last_error = shape_error
             except StageError as exc:
@@ -184,13 +195,14 @@ class TranslateStage(Stage):
                 last_error = exc
             if attempt < attempts - 1:
                 _sleep_before_retry(context.config.translate_retry_initial_wait, attempt)
+
         if last_error is not None:
             if last_error.code == "TRANSLATE_INCOMPLETE" and last_translated is not None:
-                logger.warning(
-                    "Translation returned an empty target after retries; "
-                    "using source text for 1 segment(s)."
+                return _fallback_empty_group_translations(
+                    groups,
+                    translatable_groups,
+                    last_translated,
                 )
-                return source, True
             raise last_error
         raise StageError(
             "TRANSLATE_MISALIGN",
@@ -346,6 +358,75 @@ def _translation_shape_error(
     return None
 
 
+def _translation_group_shape_error(
+    groups: list[list[TranscriptSegment]],
+    translated: list[str],
+) -> Optional[StageError]:
+    if len(translated) != len(groups):
+        return StageError(
+            "TRANSLATE_MISALIGN",
+            "Translated segment count did not match input segment count.",
+            retryable=True,
+        )
+    return None
+
+
+def _empty_group_translation_indexes(
+    groups: list[list[TranscriptSegment]],
+    translated: list[str],
+) -> list[int]:
+    return [
+        index
+        for index, (group, target) in enumerate(zip(groups, translated))
+        if _group_source(group).strip() and not target.strip()
+    ]
+
+
+def _fallback_empty_group_translations(
+    groups: list[list[TranscriptSegment]],
+    translatable_groups: list[list[TranscriptSegment]],
+    translated: list[str],
+) -> list[tuple[str, bool]]:
+    empty_indexes = _empty_group_translation_indexes(translatable_groups, translated)
+    logger.warning(
+        "Translation returned empty targets after retries; using source text for %d segment(s).",
+        len(empty_indexes),
+    )
+    fallback_ids = {translatable_groups[index][0].id for index in empty_indexes}
+    recovered = [
+        _group_source(group) if group[0].id in fallback_ids else target
+        for group, target in zip(translatable_groups, translated)
+    ]
+    return _merge_group_targets(
+        groups,
+        translatable_groups,
+        recovered,
+        fallback_ids=fallback_ids,
+    )
+
+
+def _merge_group_targets(
+    groups: list[list[TranscriptSegment]],
+    translatable_groups: list[list[TranscriptSegment]],
+    translated: list[str],
+    *,
+    fallback_ids: Optional[set[int]] = None,
+) -> list[tuple[str, bool]]:
+    targets_by_id = {group[0].id: target for group, target in zip(translatable_groups, translated)}
+    fallback_ids = fallback_ids or set()
+    return [
+        (
+            (
+                targets_by_id[group[0].id]
+                if group[0].id in targets_by_id
+                else _passthrough_target(group)
+            ),
+            group[0].id in fallback_ids,
+        )
+        for group in groups
+    ]
+
+
 def _empty_translation_indexes(
     target_segments: list[TranscriptSegment],
     translated: list[str],
@@ -409,6 +490,18 @@ def _group_source(group: list[TranscriptSegment]) -> str:
     return " ".join(segment.text.strip() for segment in group if segment.text.strip())
 
 
+def _passthrough_target(group: list[TranscriptSegment]) -> str:
+    source = _group_source(group)
+    return source if source.strip() else ""
+
+
+def _target_chars(group: list[TranscriptSegment], chars_per_second: float) -> int:
+    duration = max(0.0, group[-1].end - group[0].start)
+    # 0秒枠（Whisper出力で起こり得る）で targetChars: 0 を渡すと素直なモデルが
+    # 空文字を返しリトライを浪費するため、下限を設ける。
+    return max(1, int(round(duration * chars_per_second)))
+
+
 def _ends_with_sentence_terminal(text: str) -> bool:
     stripped = text.rstrip()
     while stripped and stripped[-1] in _SENTENCE_TRAILING_QUOTES:
@@ -438,6 +531,26 @@ def _context_segments(
     ]
 
 
+def _confirmed_context_segments(
+    confirmed_segments: list[TranslationSegment],
+    context_window: int,
+) -> list[dict[str, object]]:
+    if context_window <= 0:
+        return []
+    prior = [segment for segment in confirmed_segments if segment.source.strip()]
+    return [
+        {
+            "id": segment.id,
+            "start": segment.start,
+            "end": segment.end,
+            "text": segment.source,
+            "target": segment.target,
+            "contextOnly": True,
+        }
+        for segment in prior[-max(0, context_window) :]
+    ]
+
+
 def _segment_payload(segment: TranscriptSegment, *, context_only: bool) -> dict[str, object]:
     return {
         "id": segment.id,
@@ -448,11 +561,19 @@ def _segment_payload(segment: TranscriptSegment, *, context_only: bool) -> dict[
     }
 
 
-def _group_payload(group: list[TranscriptSegment], *, context_only: bool) -> dict[str, object]:
-    return {
+def _group_payload(
+    group: list[TranscriptSegment],
+    *,
+    context_only: bool,
+    target_chars: Optional[int] = None,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
         "id": group[0].id,
         "start": group[0].start,
         "end": group[-1].end,
         "text": _group_source(group),
         "contextOnly": context_only,
     }
+    if target_chars is not None:
+        payload["targetChars"] = target_chars
+    return payload

@@ -151,6 +151,13 @@ class BackendConfig:
     translate_chunk_size: int = field(
         default_factory=lambda: _env_int("REVERB_TRANSLATE_CHUNK_SIZE", 10)
     )
+    translate_chunk_groups: int = field(
+        default_factory=lambda: _env_int("REVERB_TRANSLATE_CHUNK_GROUPS", 4)
+    )
+    # 導入時に実測調整: 日本語吹き替えの発話速度に合わせて環境変数で上書きする。
+    translate_chars_per_sec: float = field(
+        default_factory=lambda: _env_float("REVERB_TRANSLATE_CHARS_PER_SEC", 6.0)
+    )
     translate_context_window: int = field(
         default_factory=lambda: _env_int("REVERB_TRANSLATE_CONTEXT_WINDOW", 2)
     )
@@ -163,17 +170,21 @@ class BackendConfig:
         default_factory=lambda: os.getenv(
             "REVERB_TRANSLATE_SYSTEM_PROMPT",
             (
-                "あなたは外国語ナレーション動画を日本語字幕に翻訳するプロの翻訳者です。"
-                "inputSegments の各文を、原文の意味を保ったまま自然で分かりやすい日本語に翻訳してください。\n"
-                "# 翻訳方針\n"
+                "あなたは外国語ナレーション動画から、日本語吹き替えナレーション台本を作成するプロの翻訳者です。"
+                "inputSegments の各文グループを、原文の意味と情報を保ったまま、"
+                "耳で聞いて自然で分かりやすい日本語の台本にしてください。\n"
+                "# 台本化方針\n"
                 "- 逐語訳・直訳をしない。英語の語順や言い回しをそのまま日本語に置き換えず、"
                 "日本語として自然な表現に意訳する。\n"
                 "- 文体は落ち着いた「です・ます」調のナレーション。視聴者がすっと理解できる平易な言葉を選ぶ。\n"
                 "- 不自然なカタカナ語の多用や翻訳調の硬い言い回しを避け、一般的な日本語表現に言い換える。\n"
-                "- 同一の固有名詞や専門用語は訳文全体で表記を統一する。\n"
-                "- contextSegments は前後の文脈を理解するための参考情報であり、翻訳・出力はしない。"
-                "代名詞や省略はこの文脈を踏まえて自然に補う。\n"
-                "- 字幕用に簡潔にする。ただし意味・情報を削らず、勝手な追加もしない。\n"
+                "- Okay?、like、Anyway, whatever などのフィラーや言い直しは、意味を損なわない範囲で省略するか、"
+                "文脈に合う自然な相槌へ置き換えてよい。\n"
+                "- 日本語として自然になるよう主語・代名詞を省略し、談話内で文を統合し、語順を変更してよい。"
+                "ただし原文の意味・情報は削らず、勝手な情報も追加しない。\n"
+                "- contextSegments は直前の原文 source と確定済み日本語訳 target のペアである。"
+                "翻訳・出力はせず、既出訳に合わせて中核用語・専門用語・固有名詞の表記を統一する。\n"
+                "- inputSegments の各 text は、対応する targetChars 以内の日本語に収める。\n"
                 "# 出力形式\n"
                 "inputSegments と同じ id を持つ JSONオブジェクト配列のみを返す。"
                 '各要素は {"id": <入力と同じid>, "text": "<日本語訳>"} の形式。'
@@ -263,6 +274,10 @@ class BackendConfig:
             raise ValueError("REVERB_TRANSLATE_FALLBACK_THRESHOLD must be in the range (0.0, 1.0]")
         if self.translate_chunk_size <= 0:
             raise ValueError("REVERB_TRANSLATE_CHUNK_SIZE must be greater than 0")
+        if self.translate_chunk_groups <= 0:
+            raise ValueError("REVERB_TRANSLATE_CHUNK_GROUPS must be greater than 0")
+        if self.translate_chars_per_sec <= 0:
+            raise ValueError("REVERB_TRANSLATE_CHARS_PER_SEC must be greater than 0")
         if self.translate_context_window < 0:
             raise ValueError("REVERB_TRANSLATE_CONTEXT_WINDOW must be greater than or equal to 0")
         if self.translate_temperature < 0:
@@ -312,6 +327,8 @@ class BackendConfig:
             translate_retry_initial_wait=self.translate_retry_initial_wait,
             translate_fallback_threshold=self.translate_fallback_threshold,
             translate_chunk_size=self.translate_chunk_size,
+            translate_chunk_groups=self.translate_chunk_groups,
+            translate_chars_per_sec=self.translate_chars_per_sec,
             translate_context_window=self.translate_context_window,
             translate_temperature=self.translate_temperature,
             translate_system_prompt=self.translate_system_prompt,

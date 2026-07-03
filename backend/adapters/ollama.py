@@ -138,18 +138,30 @@ def _translation_user_content(
         {
             "sourceLanguage": source_lang,
             "contextWindow": context_window,
-            "contextSegments": _segment_text_payload(context_segments),
-            "inputSegments": _segment_text_payload(input_segments),
+            "contextSegments": _context_segment_payload(context_segments),
+            "inputSegments": _input_segment_payload(input_segments),
         },
         ensure_ascii=False,
     )
 
 
-def _segment_text_payload(segments: list[dict[str, object]]) -> list[dict[str, object]]:
+def _context_segment_payload(segments: list[dict[str, object]]) -> list[dict[str, object]]:
+    return [
+        {
+            "id": segment.get("id"),
+            "source": segment.get("text", ""),
+            "target": segment.get("target", ""),
+        }
+        for segment in segments
+    ]
+
+
+def _input_segment_payload(segments: list[dict[str, object]]) -> list[dict[str, object]]:
     return [
         {
             "id": segment.get("id"),
             "text": segment.get("text", ""),
+            "targetChars": segment.get("targetChars"),
         }
         for segment in segments
     ]
@@ -180,24 +192,34 @@ def _extract_json_array(content: str) -> object:
             return json.loads(candidate)
         except json.JSONDecodeError:
             continue
-    # 配列が無い場合、thinking モデルの前置き等に埋もれた単一オブジェクトを拾う。
-    return _extract_json_object(content)
+    # 配列が無い場合、thinking モデルの前置き等に埋もれたオブジェクトを全て拾う。
+    # qwen3 等は複数セグメント入力に対し JSONL（1行1オブジェクト）で返すことが
+    # あるため、最初の1個ではなく出現順に全て回収する。
+    return _extract_json_objects(content)
 
 
-def _extract_json_object(content: str) -> object:
-    for start, char in enumerate(content):
-        if char != "{":
+def _extract_json_objects(content: str) -> list[object]:
+    objects: list[object] = []
+    index = 0
+    while index < len(content):
+        if content[index] != "{":
+            index += 1
             continue
-        candidate = _balanced_json_object_candidate(content, start)
+        candidate = _balanced_json_object_candidate(content, index)
         if candidate is None:
+            index += 1
             continue
         try:
             parsed = json.loads(candidate)
         except json.JSONDecodeError:
+            index += 1
             continue
         if isinstance(parsed, dict) and isinstance(parsed.get("text"), str):
-            return parsed
-    return []
+            objects.append(parsed)
+            index += len(candidate)
+        else:
+            index += 1
+    return objects
 
 
 def _balanced_json_object_candidate(content: str, start: int) -> Optional[str]:
@@ -254,8 +276,8 @@ def _translation_texts(
     parsed: list[object],
     input_segments: list[dict[str, object]],
 ) -> list[str]:
-    input_ids = [segment.get("id") for segment in input_segments]
-    by_id: dict[object, dict[str, object]] = {}
+    input_ids = [str(segment.get("id")) for segment in input_segments]
+    by_id: dict[str, dict[str, object]] = {}
     has_id_items = False
     can_map_by_id = bool(input_ids)
 
@@ -264,23 +286,24 @@ def _translation_texts(
             can_map_by_id = False
             continue
         has_id_items = True
-        item_id = item["id"]
+        item_id = str(item["id"])
         if item_id in by_id:
             can_map_by_id = False
             continue
         by_id[item_id] = item
 
-    if can_map_by_id:
+    if can_map_by_id and parsed:
+        # モデルが contextSegments の id を復唱しても、入力 id が全て揃っていれば
+        # 訳は一意に取り出せるため上位集合は許容する。欠落のみ misalign とする。
+        if not set(input_ids) <= set(by_id):
+            raise _translation_misalign_error()
         return [
             _translation_text(by_id[input_id]) if input_id in by_id else ""
             for input_id in input_ids
         ]
 
     if has_id_items:
-        return [
-            _translation_text(by_id[input_id]) if input_id in by_id else ""
-            for input_id in input_ids
-        ]
+        raise _translation_misalign_error()
 
     return [
         _translation_text(parsed[index]) if index < len(parsed) else ""
@@ -297,6 +320,14 @@ def _translation_text(item: object) -> str:
     if not isinstance(text, str):
         return ""
     return text.replace("\n", " ").strip()
+
+
+def _translation_misalign_error() -> StageError:
+    return StageError(
+        "TRANSLATE_MISALIGN",
+        "Translated segment IDs did not match input segment IDs.",
+        retryable=True,
+    )
 
 
 def _read_error_body(exc: urllib.error.HTTPError) -> str:
