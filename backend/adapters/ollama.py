@@ -9,6 +9,18 @@ from core.errors import StageError
 from core.net import validate_loopback_url
 
 
+_GLOSSARY_SYSTEM_PROMPT = (
+    "あなたは外国語ナレーションの翻訳用語集を作る専門家です。"
+    "transcript 全文から、繰り返し登場する中核的な専門用語・固有名詞を抽出し、"
+    "原語 source と一貫して使う日本語訳 target の JSON 配列だけを返してください。"
+    "用語集は名詞・固有名詞を中心にし、動詞や文脈依存の一般語は原則として含めないでください。"
+    "多義語を固定して品詞や意味の使い分けを壊してはいけません。"
+    "たとえば 'harness AI' の harness は「活用する」という動詞ですが、"
+    "'the harness' は「ハーネス」という名詞なので、同じ訳語に固定しないでください。"
+    '各要素は {"source": "原語", "target": "日本語訳"} の形式にしてください。'
+)
+
+
 class OllamaAdapter:
     def __init__(
         self,
@@ -49,6 +61,7 @@ class OllamaAdapter:
         source_lang: Optional[str],
         system_prompt: str,
         context_window: int,
+        glossary: Optional[list[dict[str, str]]] = None,
     ) -> list[str]:
         context_segments = [segment for segment in segments if segment.get("contextOnly")]
         input_segments = [segment for segment in segments if not segment.get("contextOnly")]
@@ -64,6 +77,7 @@ class OllamaAdapter:
                         context_window,
                         context_segments,
                         input_segments,
+                        glossary or [],
                     ),
                 },
             ],
@@ -79,6 +93,42 @@ class OllamaAdapter:
             return []
         parsed = _parse_translation_array(content)
         return _translation_texts(parsed, input_segments)
+
+    def generate_glossary(
+        self,
+        transcript: str,
+        model: str,
+        source_lang: Optional[str],
+        max_terms: int,
+    ) -> list[dict[str, str]]:
+        payload = {
+            "model": model,
+            "stream": False,
+            "messages": [
+                {"role": "system", "content": _GLOSSARY_SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {
+                            "sourceLanguage": source_lang,
+                            "maxTerms": max_terms,
+                            "transcript": transcript,
+                        },
+                        ensure_ascii=False,
+                    ),
+                },
+            ],
+        }
+        if self.keep_alive:
+            payload["keep_alive"] = self.keep_alive
+        if self.temperature is not None:
+            payload["options"] = {"temperature": self.temperature}
+        response = self._post_json("/api/chat", payload, model)
+        message = response.get("message", {})
+        content = message.get("content") if isinstance(message, dict) else None
+        if not isinstance(content, str):
+            return []
+        return _parse_glossary_entries(content, max_terms)
 
     def warm_up(self, model: str, system_prompt: str) -> None:
         payload = {
@@ -133,6 +183,7 @@ def _translation_user_content(
     context_window: int,
     context_segments: list[dict[str, object]],
     input_segments: list[dict[str, object]],
+    glossary: list[dict[str, str]],
 ) -> str:
     return json.dumps(
         {
@@ -140,9 +191,32 @@ def _translation_user_content(
             "contextWindow": context_window,
             "contextSegments": _context_segment_payload(context_segments),
             "inputSegments": _input_segment_payload(input_segments),
+            "glossary": glossary,
         },
         ensure_ascii=False,
     )
+
+
+def _parse_glossary_entries(content: str, max_terms: int) -> list[dict[str, str]]:
+    try:
+        parsed = json.loads(content)
+    except json.JSONDecodeError:
+        parsed = _extract_json_array(content)
+    if isinstance(parsed, dict):
+        parsed = parsed.get("entries")
+    if not isinstance(parsed, list):
+        return []
+    entries: list[dict[str, str]] = []
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        source = item.get("source")
+        target = item.get("target")
+        if isinstance(source, str) and source.strip() and isinstance(target, str) and target.strip():
+            entries.append({"source": source.strip(), "target": target.strip()})
+        if len(entries) >= max_terms:
+            break
+    return entries
 
 
 def _context_segment_payload(segments: list[dict[str, object]]) -> list[dict[str, object]]:

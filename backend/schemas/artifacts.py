@@ -25,6 +25,20 @@ class Transcript(BaseModel):
     segments: List[TranscriptSegment]
 
 
+class GlossaryEntry(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    source: str
+    target: str
+
+
+class Glossary(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    version: int = 1
+    entries: List[GlossaryEntry]
+
+
 class TranslationSegment(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 

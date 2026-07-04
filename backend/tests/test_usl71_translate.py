@@ -33,6 +33,12 @@ class FakeTranslator:
         self.calls = []
         self.events = []
 
+    def generate_glossary(
+        self, transcript: str, model: str, source_lang: Optional[str], max_terms: int
+    ) -> list[dict[str, str]]:
+        self.events.append("generate_glossary")
+        return []
+
     def warm_up(self, model: str, system_prompt: str) -> None:
         self.events.append("warm_up")
         if self.warm_up_error:
@@ -45,6 +51,7 @@ class FakeTranslator:
         source_lang: Optional[str],
         system_prompt: str,
         context_window: int,
+        glossary: list[dict[str, str]],
     ) -> list[str]:
         self.events.append("translate")
         self.calls.append(
@@ -260,7 +267,7 @@ def test_translate_warms_up_before_first_chunk_and_continues_after_failure(
     translation = read_translation(record.project_dir)
     assert record.status == JobState.done
     assert [segment.target for segment in translation.segments] == ["ウォームアップ失敗後も続行。"]
-    assert translator.events[:2] == ["warm_up", "translate"]
+    assert translator.events[:3] == ["generate_glossary", "warm_up", "translate"]
     assert "Ollama warm-up failed; continuing with translate stage." in caplog.text
 
 

@@ -27,6 +27,11 @@ class FakeTranslator:
         self.errors = errors or []
         self.calls: list[list[dict[str, object]]] = []
 
+    def generate_glossary(
+        self, transcript: str, model: str, source_lang: Optional[str], max_terms: int
+    ) -> list[dict[str, str]]:
+        return []
+
     def warm_up(self, model: str, system_prompt: str) -> None:
         return None
 
@@ -37,6 +42,7 @@ class FakeTranslator:
         source_lang: Optional[str],
         system_prompt: str,
         context_window: int,
+        glossary: list[dict[str, str]],
     ) -> list[str]:
         self.calls.append(segments)
         if self.errors:
@@ -212,10 +218,11 @@ def test_ollama_payload_contains_confirmed_context_and_target_chars(
     user_payload = json.loads(messages[1]["content"])
     assert user_payload == {
         "sourceLanguage": "en",
-        "contextWindow": 4,
-        "contextSegments": [{"id": 1, "source": "Previous.", "target": "直前の訳。"}],
-        "inputSegments": [{"id": 2, "text": "Next.", "targetChars": 12}],
-    }
+            "contextWindow": 4,
+            "contextSegments": [{"id": 1, "source": "Previous.", "target": "直前の訳。"}],
+            "inputSegments": [{"id": 2, "text": "Next.", "targetChars": 12}],
+            "glossary": [],
+        }
 
 
 def test_ollama_accepts_jsonl_object_lines_response(

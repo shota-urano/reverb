@@ -154,6 +154,12 @@ class BackendConfig:
     translate_dedup_similarity: float = field(
         default_factory=lambda: _env_float("REVERB_TRANSLATE_DEDUP_SIMILARITY", 0.9)
     )
+    translate_glossary_enabled: bool = field(
+        default_factory=lambda: _env_bool("REVERB_TRANSLATE_GLOSSARY_ENABLED", True)
+    )
+    translate_glossary_max_terms: int = field(
+        default_factory=lambda: _env_int("REVERB_TRANSLATE_GLOSSARY_MAX_TERMS", 50)
+    )
     translate_chunk_size: int = field(
         default_factory=lambda: _env_int("REVERB_TRANSLATE_CHUNK_SIZE", 10)
     )
@@ -190,6 +196,8 @@ class BackendConfig:
                 "ただし原文の意味・情報は削らず、勝手な情報も追加しない。\n"
                 "- contextSegments は直前の原文 source と確定済み日本語訳 target のペアである。"
                 "翻訳・出力はせず、既出訳に合わせて中核用語・専門用語・固有名詞の表記を統一する。\n"
+                "- glossary は全文から確定した名詞・固有名詞中心の用語集である。"
+                "該当する用語は target の表記を全編で一貫して使用する。\n"
                 "- inputSegments の各 text は、対応する targetChars 以内の日本語に収める。\n"
                 "# 出力形式\n"
                 "inputSegments と同じ id を持つ JSONオブジェクト配列のみを返す。"
@@ -283,6 +291,8 @@ class BackendConfig:
             raise ValueError("REVERB_TRANSLATE_FALLBACK_THRESHOLD must be in the range (0.0, 1.0]")
         if self.translate_dedup_similarity < 0 or self.translate_dedup_similarity > 1:
             raise ValueError("REVERB_TRANSLATE_DEDUP_SIMILARITY must be in the range [0.0, 1.0]")
+        if self.translate_glossary_max_terms <= 0:
+            raise ValueError("REVERB_TRANSLATE_GLOSSARY_MAX_TERMS must be greater than 0")
         if self.translate_chunk_size <= 0:
             raise ValueError("REVERB_TRANSLATE_CHUNK_SIZE must be greater than 0")
         if self.translate_chunk_groups <= 0:
@@ -341,6 +351,8 @@ class BackendConfig:
             translate_fallback_threshold=self.translate_fallback_threshold,
             translate_dedup_enabled=self.translate_dedup_enabled,
             translate_dedup_similarity=self.translate_dedup_similarity,
+            translate_glossary_enabled=self.translate_glossary_enabled,
+            translate_glossary_max_terms=self.translate_glossary_max_terms,
             translate_chunk_size=self.translate_chunk_size,
             translate_chunk_groups=self.translate_chunk_groups,
             translate_chars_per_sec=self.translate_chars_per_sec,
