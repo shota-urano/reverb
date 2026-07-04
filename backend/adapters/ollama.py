@@ -130,6 +130,39 @@ class OllamaAdapter:
             return []
         return _parse_glossary_entries(content, max_terms)
 
+    def polish(
+        self,
+        segments: list[dict],
+        model: str,
+        system_prompt: str,
+        temperature: float,
+    ) -> list[str]:
+        payload = {
+            "model": model,
+            "stream": False,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {
+                    "role": "user",
+                    "content": json.dumps(segments, ensure_ascii=False),
+                },
+            ],
+            "options": {"temperature": temperature},
+        }
+        if self.keep_alive:
+            payload["keep_alive"] = self.keep_alive
+        response = self._post_json("/api/chat", payload, model)
+        message = response.get("message", {})
+        content = message.get("content") if isinstance(message, dict) else None
+        if not isinstance(content, str):
+            raise _translation_misalign_error()
+        parsed = _parse_translation_array(content)
+        if len(parsed) != len(segments) or any(
+            not isinstance(item, dict) or "id" not in item for item in parsed
+        ):
+            raise _translation_misalign_error()
+        return _translation_texts(parsed, segments)
+
     def warm_up(self, model: str, system_prompt: str) -> None:
         payload = {
             "model": model,
@@ -212,7 +245,12 @@ def _parse_glossary_entries(content: str, max_terms: int) -> list[dict[str, str]
             continue
         source = item.get("source")
         target = item.get("target")
-        if isinstance(source, str) and source.strip() and isinstance(target, str) and target.strip():
+        if (
+            isinstance(source, str)
+            and source.strip()
+            and isinstance(target, str)
+            and target.strip()
+        ):
             entries.append({"source": source.strip(), "target": target.strip()})
         if len(entries) >= max_terms:
             break

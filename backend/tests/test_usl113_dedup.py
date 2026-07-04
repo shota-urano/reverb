@@ -39,6 +39,9 @@ class _RecordingTranslator:
         self.calls.append(segments)
         return ["翻訳です。"]
 
+    def polish(self, segments, model, system_prompt, temperature):
+        return [segment["text"] for segment in segments]
+
 
 def test_adjacent_similar_groups_are_merged_with_representative_source() -> None:
     first = [_segment(1, 0.0, 1.0, "Hello, world!")]

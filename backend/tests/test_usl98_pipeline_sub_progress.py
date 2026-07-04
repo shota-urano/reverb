@@ -54,6 +54,9 @@ class SlowTranslator:
         _wait_for_intermediate_values(self.progress_values, minimum=2)
         return [f"訳{segment['id']}" for segment in segments if not segment.get("contextOnly")]
 
+    def polish(self, segments, model, system_prompt, temperature):
+        return [segment["text"] for segment in segments]
+
 
 class SlowSynthesizer:
     def __init__(self, progress_values: list[float]) -> None:

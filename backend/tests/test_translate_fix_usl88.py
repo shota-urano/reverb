@@ -37,6 +37,9 @@ class FakeTranslator:
         self.calls.append(segments)
         return self.responses.pop(0)
 
+    def polish(self, segments, model, system_prompt, temperature):
+        return [segment["text"] for segment in segments]
+
 
 def test_parser_maps_object_array_by_id(monkeypatch: pytest.MonkeyPatch) -> None:
     adapter = _adapter_with_content(

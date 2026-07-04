@@ -4,7 +4,7 @@ import logging
 import time
 import unicodedata
 from difflib import SequenceMatcher
-from typing import Optional, Protocol, TypeVar
+from typing import Optional, Protocol, TypeVar, Union
 
 from core.artifacts import (
     GLOSSARY_PATH,
@@ -13,11 +13,18 @@ from core.artifacts import (
     read_transcript,
     write_glossary,
     write_translation,
+    write_translation_raw,
 )
 from core.errors import StageError
 from core.progress_reporter import _EstimatedProgressReporter
 from pipeline.stage import PipelineContext, Stage
-from schemas.artifacts import Glossary, GlossaryEntry, Translation, TranslationSegment, TranscriptSegment
+from schemas.artifacts import (
+    Glossary,
+    GlossaryEntry,
+    Translation,
+    TranslationSegment,
+    TranscriptSegment,
+)
 from schemas.enums import StageName
 
 logger = logging.getLogger(__name__)
@@ -46,6 +53,14 @@ class Translator(Protocol):
         glossary: list[dict[str, str]],
     ) -> list[str]: ...
 
+    def polish(
+        self,
+        segments: list[dict],
+        model: str,
+        system_prompt: str,
+        temperature: float,
+    ) -> list[str]: ...
+
 
 class TranslateStage(Stage):
     name = StageName.translate
@@ -64,19 +79,6 @@ class TranslateStage(Stage):
             context.config.translate_dedup_similarity,
             context.config.translate_dedup_enabled,
         )
-
-        if not segment_groups:
-            write_translation(
-                context.project_dir,
-                Translation(
-                    model=model,
-                    sourceLanguage=transcript.language,
-                    targetLanguage="ja",
-                    segments=[],
-                ),
-            )
-            context.report_progress(1.0)
-            return str(TRANSLATION_PATH)
 
         chunks = list(_chunks(segment_groups, context.config.translate_chunk_size))
         if any(_is_translatable_group(group) for group in segment_groups):
@@ -145,16 +147,69 @@ class TranslateStage(Stage):
                 "Translation returned empty targets for too many source segments.",
                 retryable=True,
             )
-        write_translation(
-            context.project_dir,
-            Translation(
-                model=model,
-                sourceLanguage=transcript.language,
-                targetLanguage="ja",
-                segments=translation_segments,
-            ),
+        if not segment_groups:
+            context.report_progress(1.0)
+        translation = Translation(
+            model=model,
+            sourceLanguage=transcript.language,
+            targetLanguage="ja",
+            segments=translation_segments,
         )
+        if context.config.translate_polish_enabled:
+            write_translation_raw(context.project_dir, translation)
+            self._polish_translation(context, translation)
+        write_translation(context.project_dir, translation)
         return str(TRANSLATION_PATH)
+
+    def _polish_translation(
+        self,
+        context: PipelineContext,
+        translation: Translation,
+    ) -> None:
+        started_at = time.monotonic()
+        model = context.config.translate_polish_model or context.config.default_translate_model
+        for chunk in _chunks(translation.segments, context.config.translate_chunk_size):
+            inputs = [
+                {
+                    "id": segment.id,
+                    "text": segment.target,
+                    "targetChars": _target_chars(
+                        segment,
+                        context.config.translate_chars_per_sec,
+                    ),
+                }
+                for segment in chunk
+                if segment.target
+            ]
+            if not inputs:
+                continue
+            try:
+                polished = self.adapter.polish(
+                    inputs,
+                    model,
+                    context.config.translate_polish_system_prompt,
+                    context.config.translate_polish_temperature,
+                )
+                if len(polished) != len(inputs):
+                    raise ValueError("Polished segment count did not match input segment count.")
+                input_segments = [segment for segment in chunk if segment.target]
+                resolved_targets = [
+                    polished_text if polished_text.strip() else segment.target
+                    for segment, polished_text in zip(input_segments, polished)
+                ]
+            except Exception:
+                logger.warning(
+                    "Japanese polish failed; using pre-polish targets for this chunk.",
+                    exc_info=True,
+                )
+                continue
+
+            for segment, resolved_target in zip(input_segments, resolved_targets):
+                segment.target = resolved_target
+        logger.info(
+            "Japanese polish completed in %.3f seconds.",
+            time.monotonic() - started_at,
+        )
 
     def _translate_groups(
         self,
@@ -441,16 +496,13 @@ def _groups_are_similar(
     if not first_normalized or not second_normalized:
         return False
     return (
-        SequenceMatcher(None, first_normalized, second_normalized).ratio()
-        >= similarity_threshold
+        SequenceMatcher(None, first_normalized, second_normalized).ratio() >= similarity_threshold
     )
 
 
 def _normalize_dedup_source(source: str) -> str:
     without_symbols = "".join(
-        char.lower()
-        for char in source
-        if unicodedata.category(char)[0] not in {"P", "S"}
+        char.lower() for char in source if unicodedata.category(char)[0] not in {"P", "S"}
     )
     return " ".join(without_symbols.split())
 
@@ -633,8 +685,17 @@ def _passthrough_target(group: list[TranscriptSegment]) -> str:
     return source if source.strip() else ""
 
 
-def _target_chars(group: list[TranscriptSegment], chars_per_second: float) -> int:
-    duration = max(0.0, group[-1].end - group[0].start)
+def _target_chars(
+    segment_or_group: Union[list[TranscriptSegment], TranslationSegment],
+    chars_per_second: float,
+) -> int:
+    if isinstance(segment_or_group, list):
+        start = segment_or_group[0].start
+        end = segment_or_group[-1].end
+    else:
+        start = segment_or_group.start
+        end = segment_or_group.end
+    duration = max(0.0, end - start)
     # 0秒枠（Whisper出力で起こり得る）で targetChars: 0 を渡すと素直なモデルが
     # 空文字を返しリトライを浪費するため、下限を設ける。
     return max(1, int(round(duration * chars_per_second)))

@@ -49,6 +49,9 @@ class FakeTranslator:
             raise self.errors.pop(0)
         return self.responses.pop(0)
 
+    def polish(self, segments, model, system_prompt, temperature):
+        return [segment["text"] for segment in segments]
+
 
 def test_translates_configured_number_of_sentence_groups_per_request(
     tmp_path: Path,
@@ -218,11 +221,11 @@ def test_ollama_payload_contains_confirmed_context_and_target_chars(
     user_payload = json.loads(messages[1]["content"])
     assert user_payload == {
         "sourceLanguage": "en",
-            "contextWindow": 4,
-            "contextSegments": [{"id": 1, "source": "Previous.", "target": "直前の訳。"}],
-            "inputSegments": [{"id": 2, "text": "Next.", "targetChars": 12}],
-            "glossary": [],
-        }
+        "contextWindow": 4,
+        "contextSegments": [{"id": 1, "source": "Previous.", "target": "直前の訳。"}],
+        "inputSegments": [{"id": 2, "text": "Next.", "targetChars": 12}],
+        "glossary": [],
+    }
 
 
 def test_ollama_accepts_jsonl_object_lines_response(
