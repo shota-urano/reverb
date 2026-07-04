@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import time
 import unicodedata
+from difflib import SequenceMatcher
 from typing import Optional, Protocol, TypeVar
 
 from core.artifacts import TRANSLATION_PATH, read_transcript, write_translation
@@ -41,6 +42,11 @@ class TranslateStage(Stage):
         transcript = read_transcript(context.project_dir)
         model = context.job.settings.translate.model or context.config.default_translate_model
         segment_groups = group_segments_by_sentence(transcript.segments)
+        segment_groups = dedup_adjacent_groups(
+            segment_groups,
+            context.config.translate_dedup_similarity,
+            context.config.translate_dedup_enabled,
+        )
 
         if not segment_groups:
             write_translation(
@@ -322,6 +328,83 @@ def group_segments_by_sentence(segments: list[TranscriptSegment]) -> list[list[T
     return groups
 
 
+class _DedupMergedGroup(list[TranscriptSegment]):
+    def __init__(
+        self,
+        segments: list[TranscriptSegment],
+        representative_segment_count: int,
+    ) -> None:
+        super().__init__(segments)
+        self.representative_segment_count = representative_segment_count
+
+
+def dedup_adjacent_groups(
+    groups: list[list[TranscriptSegment]],
+    similarity_threshold: float,
+    enabled: bool,
+) -> list[list[TranscriptSegment]]:
+    if not enabled:
+        return groups
+
+    deduplicated: list[list[TranscriptSegment]] = []
+    previous_group: Optional[list[TranscriptSegment]] = None
+    for group in groups:
+        if previous_group is not None and _groups_are_similar(
+            previous_group,
+            group,
+            similarity_threshold,
+        ):
+            prior = deduplicated[-1]
+            representative_count = (
+                prior.representative_segment_count
+                if isinstance(prior, _DedupMergedGroup)
+                else len(prior)
+            )
+            deduplicated[-1] = _DedupMergedGroup(
+                [*prior, *group],
+                representative_count,
+            )
+        else:
+            deduplicated.append(group)
+        previous_group = group
+    return deduplicated
+
+
+def _groups_are_similar(
+    first: list[TranscriptSegment],
+    second: list[TranscriptSegment],
+    similarity_threshold: float,
+) -> bool:
+    if not first or not second:
+        return False
+    first_source = _group_source(first)
+    second_source = _group_source(second)
+    if (
+        not first_source.strip()
+        or not second_source.strip()
+        or is_non_linguistic(first_source)
+        or is_non_linguistic(second_source)
+    ):
+        return False
+    first_normalized = _normalize_dedup_source(first_source)
+    second_normalized = _normalize_dedup_source(second_source)
+    if not first_normalized or not second_normalized:
+        return False
+    return (
+        SequenceMatcher(None, first_normalized, second_normalized).ratio()
+        >= similarity_threshold
+    )
+
+
+def _normalize_dedup_source(source: str) -> str:
+    without_symbols = "".join(
+        char.lower()
+        for char in source
+        if unicodedata.category(char)[0] not in {"P", "S"}
+    )
+    return " ".join(without_symbols.split())
+
+
 def is_non_linguistic(text: str) -> bool:
     return not any(_is_linguistic_character(char) for char in text)
 
@@ -485,9 +568,14 @@ def _is_translatable_group(group: list[TranscriptSegment]) -> bool:
 
 
 def _group_source(group: list[TranscriptSegment]) -> str:
-    if len(group) == 1:
-        return group[0].text
-    return " ".join(segment.text.strip() for segment in group if segment.text.strip())
+    source_segments = (
+        group[: group.representative_segment_count]
+        if isinstance(group, _DedupMergedGroup)
+        else group
+    )
+    if len(source_segments) == 1:
+        return source_segments[0].text
+    return " ".join(segment.text.strip() for segment in source_segments if segment.text.strip())
 
 
 def _passthrough_target(group: list[TranscriptSegment]) -> str:
