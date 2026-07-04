@@ -19,6 +19,11 @@ class _RecordingTranslator:
     def __init__(self) -> None:
         self.calls: list[list[dict[str, object]]] = []
 
+    def generate_glossary(
+        self, transcript: str, model: str, source_lang: Optional[str], max_terms: int
+    ) -> list[dict[str, str]]:
+        return []
+
     def warm_up(self, model: str, system_prompt: str) -> None:
         pass
 
@@ -29,6 +34,7 @@ class _RecordingTranslator:
         source_lang: Optional[str],
         system_prompt: str,
         context_window: int,
+        glossary: list[dict[str, str]],
     ) -> list[str]:
         self.calls.append(segments)
         return ["翻訳です。"]

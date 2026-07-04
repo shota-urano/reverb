@@ -34,6 +34,11 @@ class SlowTranslator:
     def __init__(self, progress_values: list[float]) -> None:
         self.progress_values = progress_values
 
+    def generate_glossary(
+        self, transcript: str, model: str, source_lang: Optional[str], max_terms: int
+    ) -> list[dict[str, str]]:
+        return []
+
     def warm_up(self, model: str, system_prompt: str) -> None:
         return None
 
@@ -44,6 +49,7 @@ class SlowTranslator:
         source_lang: Optional[str],
         system_prompt: str,
         context_window: int,
+        glossary: list[dict[str, str]],
     ) -> list[str]:
         _wait_for_intermediate_values(self.progress_values, minimum=2)
         return [f"訳{segment['id']}" for segment in segments if not segment.get("contextOnly")]

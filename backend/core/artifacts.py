@@ -6,13 +6,14 @@ from pathlib import Path
 from typing import Type, TypeVar
 
 from core.serialization import model_to_dict
-from schemas.artifacts import Subtitles, Transcript, Translation
+from schemas.artifacts import Glossary, Subtitles, Transcript, Translation
 
 SCHEMA_VERSION = 1
 
 AUDIO_PATH = Path("audio.wav")
 THUMBNAIL_PATH = Path("thumbnail.jpg")
 TRANSCRIPT_PATH = Path("transcript.json")
+GLOSSARY_PATH = Path("glossary.json")
 TRANSLATION_PATH = Path("translation.json")
 SUBTITLES_PATH = Path("subtitles.json")
 TTS_DIR = Path("tts")
@@ -35,6 +36,14 @@ def write_transcript(project_dir: Path, transcript: Transcript) -> Path:
 
 def read_transcript(project_dir: Path) -> Transcript:
     return _read_model(project_dir / TRANSCRIPT_PATH, Transcript)
+
+
+def write_glossary(project_dir: Path, glossary: Glossary) -> Path:
+    return _write_model(project_dir / GLOSSARY_PATH, glossary)
+
+
+def read_glossary(project_dir: Path) -> Glossary:
+    return _read_model(project_dir / GLOSSARY_PATH, Glossary)
 
 
 def write_translation(project_dir: Path, translation: Translation) -> Path:

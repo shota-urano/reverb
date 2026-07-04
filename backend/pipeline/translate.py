@@ -6,11 +6,18 @@ import unicodedata
 from difflib import SequenceMatcher
 from typing import Optional, Protocol, TypeVar
 
-from core.artifacts import TRANSLATION_PATH, read_transcript, write_translation
+from core.artifacts import (
+    GLOSSARY_PATH,
+    TRANSLATION_PATH,
+    read_glossary,
+    read_transcript,
+    write_glossary,
+    write_translation,
+)
 from core.errors import StageError
 from core.progress_reporter import _EstimatedProgressReporter
 from pipeline.stage import PipelineContext, Stage
-from schemas.artifacts import Translation, TranslationSegment, TranscriptSegment
+from schemas.artifacts import Glossary, GlossaryEntry, Translation, TranslationSegment, TranscriptSegment
 from schemas.enums import StageName
 
 logger = logging.getLogger(__name__)
@@ -19,6 +26,14 @@ T = TypeVar("T")
 
 
 class Translator(Protocol):
+    def generate_glossary(
+        self,
+        transcript: str,
+        model: str,
+        source_lang: Optional[str],
+        max_terms: int,
+    ) -> list[dict[str, str]]: ...
+
     def warm_up(self, model: str, system_prompt: str) -> None: ...
 
     def translate(
@@ -28,6 +43,7 @@ class Translator(Protocol):
         source_lang: Optional[str],
         system_prompt: str,
         context_window: int,
+        glossary: list[dict[str, str]],
     ) -> list[str]: ...
 
 
@@ -41,6 +57,7 @@ class TranslateStage(Stage):
         context.report_progress(0.0)
         transcript = read_transcript(context.project_dir)
         model = context.job.settings.translate.model or context.config.default_translate_model
+        glossary = self._load_or_generate_glossary(context, transcript, model)
         segment_groups = group_segments_by_sentence(transcript.segments)
         segment_groups = dedup_adjacent_groups(
             segment_groups,
@@ -94,6 +111,7 @@ class TranslateStage(Stage):
                         translation_segments,
                         transcript.language,
                         model,
+                        glossary,
                     )
                     for group, (target, fell_back) in zip(
                         request_groups,
@@ -145,6 +163,7 @@ class TranslateStage(Stage):
         confirmed_segments: list[TranslationSegment],
         source_lang: Optional[str],
         model: str,
+        glossary: list[dict[str, str]],
     ) -> list[tuple[str, bool]]:
         translatable_groups = [group for group in groups if _is_translatable_group(group)]
         if not translatable_groups:
@@ -173,6 +192,7 @@ class TranslateStage(Stage):
                     source_lang,
                     context.config.translate_system_prompt,
                     context.config.translate_context_window,
+                    glossary,
                 )
                 shape_error = _translation_group_shape_error(translatable_groups, translated)
                 if shape_error is None and not _empty_group_translation_indexes(
@@ -223,6 +243,7 @@ class TranslateStage(Stage):
         chunk: list[TranscriptSegment],
         source_lang: Optional[str],
         model: str,
+        glossary: Optional[list[dict[str, str]]] = None,
     ) -> list[str]:
         target_segments = [segment for segment in chunk if not is_non_linguistic(segment.text)]
         if not target_segments:
@@ -248,6 +269,7 @@ class TranslateStage(Stage):
                     source_lang,
                     context.config.translate_system_prompt,
                     context.config.translate_context_window,
+                    glossary or [],
                 )
                 shape_error = _translation_shape_error(target_segments, translated)
                 if shape_error is None and not _empty_translation_indexes(
@@ -297,6 +319,34 @@ class TranslateStage(Stage):
                 "Ollama warm-up failed; continuing with translate stage.",
                 exc_info=True,
             )
+
+    def _load_or_generate_glossary(
+        self,
+        context: PipelineContext,
+        transcript,
+        model: str,
+    ) -> list[dict[str, str]]:
+        if not context.config.translate_glossary_enabled:
+            return []
+        try:
+            if (context.project_dir / GLOSSARY_PATH).exists():
+                glossary = read_glossary(context.project_dir)
+            else:
+                entries = self.adapter.generate_glossary(
+                    "\n".join(segment.text for segment in transcript.segments),
+                    model,
+                    transcript.language,
+                    context.config.translate_glossary_max_terms,
+                )
+                glossary = Glossary(entries=[GlossaryEntry(**entry) for entry in entries])
+                write_glossary(context.project_dir, glossary)
+            return [entry.model_dump() for entry in glossary.entries]
+        except Exception:
+            logger.warning(
+                "Glossary generation failed; continuing without glossary.",
+                exc_info=True,
+            )
+            return []
 
 
 def _sleep_before_retry(initial_wait: float, attempt: int) -> None:
