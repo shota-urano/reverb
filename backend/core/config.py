@@ -148,6 +148,12 @@ class BackendConfig:
     translate_fallback_threshold: float = field(
         default_factory=lambda: _env_float("REVERB_TRANSLATE_FALLBACK_THRESHOLD", 0.5)
     )
+    translate_dedup_enabled: bool = field(
+        default_factory=lambda: _env_bool("REVERB_TRANSLATE_DEDUP_ENABLED", True)
+    )
+    translate_dedup_similarity: float = field(
+        default_factory=lambda: _env_float("REVERB_TRANSLATE_DEDUP_SIMILARITY", 0.9)
+    )
     translate_chunk_size: int = field(
         default_factory=lambda: _env_int("REVERB_TRANSLATE_CHUNK_SIZE", 10)
     )
@@ -275,6 +281,8 @@ class BackendConfig:
             )
         if self.translate_fallback_threshold <= 0 or self.translate_fallback_threshold > 1:
             raise ValueError("REVERB_TRANSLATE_FALLBACK_THRESHOLD must be in the range (0.0, 1.0]")
+        if self.translate_dedup_similarity < 0 or self.translate_dedup_similarity > 1:
+            raise ValueError("REVERB_TRANSLATE_DEDUP_SIMILARITY must be in the range [0.0, 1.0]")
         if self.translate_chunk_size <= 0:
             raise ValueError("REVERB_TRANSLATE_CHUNK_SIZE must be greater than 0")
         if self.translate_chunk_groups <= 0:
@@ -331,6 +339,8 @@ class BackendConfig:
             translate_max_retries=self.translate_max_retries,
             translate_retry_initial_wait=self.translate_retry_initial_wait,
             translate_fallback_threshold=self.translate_fallback_threshold,
+            translate_dedup_enabled=self.translate_dedup_enabled,
+            translate_dedup_similarity=self.translate_dedup_similarity,
             translate_chunk_size=self.translate_chunk_size,
             translate_chunk_groups=self.translate_chunk_groups,
             translate_chars_per_sec=self.translate_chars_per_sec,
@@ -400,3 +410,16 @@ def _env_float(name: str, default: float) -> float:
         return float(raw)
     except ValueError:
         return default
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    """環境変数を安全に bool 解釈する。不正値なら既定値を返し起動を止めない。"""
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    normalized = raw.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    return default

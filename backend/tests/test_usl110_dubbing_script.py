@@ -44,7 +44,12 @@ class FakeTranslator:
         return self.responses.pop(0)
 
 
-def test_translates_configured_number_of_sentence_groups_per_request(tmp_path: Path) -> None:
+def test_translates_configured_number_of_sentence_groups_per_request(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # USL-110 テストはデデュープではなく翻訳グループのバッチ分割を検証するため無効化する。
+    monkeypatch.setenv("REVERB_TRANSLATE_DEDUP_ENABLED", "false")
     translator = FakeTranslator(
         responses=[
             ["一。", "二。"],
