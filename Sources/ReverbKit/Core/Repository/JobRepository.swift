@@ -8,6 +8,10 @@ public protocol JobRepository: Sendable {
     func listJobs() async throws -> JobListResponse
     func job(id: String) async throws -> JobStatus
     func cancel(id: String) async throws
+    /// 失敗／キャンセル済みジョブを途中再開する（`POST /jobs/{id}/resume` / USL-116）。
+    /// 完了済みステージはスキップされ、失敗ステージ以降のみ再実行される（中間成果物は引き継ぐ）。
+    /// jobId は据え置きなので、成功後は同じ jobId のまま既存の観測で完了まで追従できる。
+    func resume(id: String) async throws -> CreateJobResponse
     /// プロジェクト削除（`DELETE /jobs/{id}` / USL-99）。実行中は backend が 409 で拒否するため失敗を投げる。
     func deleteJob(id: String) async throws
     func result(id: String) async throws -> JobResult
@@ -40,6 +44,10 @@ public struct DefaultJobRepository: JobRepository {
 
     public func cancel(id: String) async throws {
         try await client.cancelJob(id: id)
+    }
+
+    public func resume(id: String) async throws -> CreateJobResponse {
+        try await client.resumeJob(id: id)
     }
 
     public func deleteJob(id: String) async throws {

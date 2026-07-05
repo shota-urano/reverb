@@ -28,6 +28,8 @@ public final class ProcessingViewModel {
     public private(set) var translateModel: String?
     /// キャンセル要求の送信中（ボタン二度押し防止）。
     public private(set) var isCanceling = false
+    /// 再開要求の送信中（ボタン二度押し防止 / USL-116）。
+    public private(set) var isResuming = false
     /// バックエンドと通信できていない（SSE もポーリングも届かない）。直近の進捗は保持したまま注意表示。
     public private(set) var connectionLost = false
 
@@ -60,6 +62,9 @@ public final class ProcessingViewModel {
 
     /// キャンセル可能か（実行前〜実行中のみ）。
     public var canCancel: Bool { !isTerminal && !isCanceling }
+
+    /// 再開可能か（失敗／キャンセル済みのみ / USL-116）。backend は done/running/queued を 409 で拒否する。
+    public var canResume: Bool { (status == .failed || status == .canceled) && !isResuming }
 
     /// 全体進捗の百分率表示（API 値由来。UI で重みを足さない）。
     public var progressText: String { ReverbFormat.percent(progress) }
@@ -123,6 +128,33 @@ public final class ProcessingViewModel {
         } catch {
             // キャンセル送信自体の失敗は理由を見せる（失敗を黙ってスキップしない）。
             failure = Self.errorBody(from: error)
+        }
+    }
+
+    /// 失敗／キャンセル済みジョブを途中再開する（失敗画面の「再開」ボタンから呼ぶ / USL-116）。
+    /// 成功時は終了状態を解除して queued に楽観反映し `true` を返す。呼び出し側（View）はこれを受けて
+    /// 観測を貼り直し、失敗ステージ以降の再実行を完了まで追従する（jobId は据え置き）。
+    /// 楽観反映で終了状態を先に解いておくことが重要: これをしないと `apply` の巻き戻しガードにより
+    /// 再観測の非終了スナップショットが弾かれ、画面が失敗表示のまま固まる。
+    /// 拒否（409/404）や通信失敗時は状態を変えず理由を `failure` に載せ `false` を返す（黙って握り潰さない）。
+    /// - Returns: 再開要求が受理されたか（View は true のときだけ再観測を貼り直す）。
+    @discardableResult
+    public func resume(jobId: String) async -> Bool {
+        guard let jobRepository, canResume else { return false }
+        isResuming = true
+        defer { isResuming = false }
+        do {
+            _ = try await jobRepository.resume(id: jobId)
+            status = .queued // 終了状態を解除（再観測の巻き戻しガードを通す）。
+            currentStage = nil
+            failure = nil
+            connectionLost = false
+            return true
+        } catch is CancellationError {
+            return false // 画面遷移等によるキャンセルは握り潰す。
+        } catch {
+            failure = Self.errorBody(from: error) // 409/404 の理由を提示する。
+            return false
         }
     }
 
@@ -212,8 +244,10 @@ public final class ProcessingViewModel {
         }
     }
 
+    /// 任意のエラーを表示用のエラーボディへ。API 封筒はそのまま、それ以外（通信層等）は
+    /// メッセージを保って包む。cancel / resume 双方の失敗提示で共有する。
     private static func errorBody(from error: Error) -> BackendErrorBody {
         if case let BackendError.api(body, _) = error { return body }
-        return BackendErrorBody(code: "CANCEL_FAILED", stage: nil, message: error.localizedDescription, retryable: true)
+        return BackendErrorBody(code: "REQUEST_FAILED", stage: nil, message: error.localizedDescription, retryable: true)
     }
 }

@@ -7,6 +7,11 @@ extension JobRepository {
     func deleteJob(id: String) async throws {}
     /// サムネイルを使わない既存スタブ向けの既定（USL-103）。空データ＝画像なし扱い。
     func thumbnail(jobId: String) async throws -> Data { Data() }
+    /// 再開を使わない既存スタブ向けの既定（USL-116）。jobId 据え置きで queued を返す。
+    /// 再開の成否を検証するテストは ScriptedJobRepository の resumeError で制御する。
+    func resume(id: String) async throws -> CreateJobResponse {
+        CreateJobResponse(jobId: id, projectId: "p_test", status: .queued)
+    }
 }
 
 /// テスト用の BackendClient。固定値を返す。
@@ -43,6 +48,9 @@ struct MockBackendClient: BackendClient {
               progress: 0.4, stages: [], error: nil)
     }
     func cancelJob(id: String) async throws {}
+    func resumeJob(id: String) async throws -> CreateJobResponse {
+        .init(jobId: id, projectId: "p_test", status: .queued)
+    }
     func deleteJob(id: String) async throws {
         if let deleteError { throw deleteError }
     }
@@ -162,15 +170,19 @@ final class ScriptedJobRepository: JobRepository, @unchecked Sendable {
     private let lock = NSLock()
     private var snapshots: [JobStatus]
     private let scriptedEvents: [JobEvent]
+    private let resumeError: BackendError?
     private var _cancelCount = 0
     private var _jobCallCount = 0
+    private var _resumeCount = 0
 
     var cancelCount: Int { lock.withLock { _cancelCount } }
     var jobCallCount: Int { lock.withLock { _jobCallCount } }
+    var resumeCount: Int { lock.withLock { _resumeCount } }
 
-    init(snapshots: [JobStatus], events: [JobEvent] = []) {
+    init(snapshots: [JobStatus], events: [JobEvent] = [], resumeError: BackendError? = nil) {
         self.snapshots = snapshots
         self.scriptedEvents = events
+        self.resumeError = resumeError
     }
 
     func createJob(videoPath: String, settings: JobSettings?) async throws -> CreateJobResponse {
@@ -189,6 +201,15 @@ final class ScriptedJobRepository: JobRepository, @unchecked Sendable {
     }
 
     func cancel(id: String) async throws { lock.withLock { _cancelCount += 1 } }
+
+    func resume(id: String) async throws -> CreateJobResponse {
+        try lock.withLock {
+            _resumeCount += 1
+            if let resumeError { throw resumeError }
+            return CreateJobResponse(jobId: id, projectId: "p_scripted", status: .queued)
+        }
+    }
+
     func result(id: String) async throws -> JobResult { throw BackendError.invalidResponse }
 
     func events(id: String) -> AsyncThrowingStream<JobEvent, Error> {
