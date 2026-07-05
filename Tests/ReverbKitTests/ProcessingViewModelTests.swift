@@ -182,4 +182,56 @@ import Foundation
         #expect(repo.cancelCount == 0) // 終了済みはキャンセルしない
         #expect(!vm.canCancel)
     }
+
+    // MARK: - 再開（USL-116）
+
+    @Test func canResumeCoversFailedAndCanceledOnly() {
+        // apply は終了状態を巻き戻さないため、状態ごとに新しい VM を用意する。
+        func vm(seeded state: JobState) -> ProcessingViewModel {
+            let (vm, _) = makeVM(snapshots: [status(.queued)])
+            vm.apply(status(state, stage: .tts))
+            return vm
+        }
+        #expect(vm(seeded: .failed).canResume)
+        #expect(vm(seeded: .canceled).canResume)
+        #expect(!vm(seeded: .running).canResume) // 実行中は再開不可（backend も 409）
+        #expect(!vm(seeded: .queued).canResume)  // 未着手は再開不可
+        #expect(!vm(seeded: .done).canResume)    // 完了は再開不可
+    }
+
+    @Test func resumeRequestsBackendAndClearsFailure() async {
+        let failure = BackendErrorBody(code: "TTS_FAILED", stage: "tts", message: "音声合成に失敗", retryable: true)
+        let (vm, repo) = makeVM(snapshots: [status(.failed, stage: .tts, error: failure)])
+        vm.apply(status(.failed, stage: .tts, error: failure)) // 失敗を確定
+        let accepted = await vm.resume(jobId: "j")
+        #expect(accepted)
+        #expect(repo.resumeCount == 1)
+        #expect(vm.status == .queued) // 終了状態を解除して再観測を通す
+        #expect(vm.failure == nil)
+        #expect(!vm.isResuming)
+    }
+
+    @Test func resumeSurfacesRejectionAndStaysFailed() async {
+        // done ジョブ等への再開は backend が 409 で拒否する。理由を見せ、状態は巻き戻さない。
+        let rejection = BackendError.api(
+            BackendErrorBody(code: "JOB_ALREADY_DONE", stage: nil, message: "既に完了しています", retryable: false),
+            statusCode: 409
+        )
+        let repo = ScriptedJobRepository(snapshots: [status(.failed, stage: .tts)], resumeError: rejection)
+        let vm = ProcessingViewModel(jobRepository: repo, modelRepository: nil, pollInterval: .milliseconds(1))
+        vm.apply(status(.failed, stage: .tts))
+        let accepted = await vm.resume(jobId: "j")
+        #expect(!accepted)
+        #expect(repo.resumeCount == 1)
+        #expect(vm.status == .failed) // 拒否では巻き戻さない
+        #expect(vm.failure?.code == "JOB_ALREADY_DONE") // 理由を提示
+    }
+
+    @Test func resumeIsNoOpWhileRunning() async {
+        let (vm, repo) = makeVM(snapshots: [status(.running, stage: .translate, progress: 0.4)])
+        vm.apply(status(.running, stage: .translate, progress: 0.4))
+        let accepted = await vm.resume(jobId: "j")
+        #expect(!accepted)
+        #expect(repo.resumeCount == 0) // 実行中は要求を送らない
+    }
 }

@@ -123,13 +123,34 @@ public struct ProcessingView: View {
         case .failed:
             failureSection
         case .canceled:
-            terminalBanner(
-                systemImage: "minus.circle.fill",
-                role: .neutral,
-                title: "処理をキャンセルしました",
-                detail: "ここまでの成果物は保存されています。ライブラリから再開できます。"
-            )
+            VStack(alignment: .leading, spacing: 10) {
+                terminalBanner(
+                    systemImage: "minus.circle.fill",
+                    role: .neutral,
+                    title: "処理をキャンセルしました",
+                    detail: "ここまでの成果物は保存されています。「再開」ボタンで続きから再開できます。"
+                )
+                // 再開拒否（例: 削除済みで 404、競合で 409）の理由を握り潰さず提示する（USL-116）。
+                // 失敗画面は failureSection が自前で出すため、canceled 経路の受け皿はここに置く。
+                if let failure = viewModel.failure {
+                    resumeErrorNote(failure)
+                }
+            }
         }
+    }
+
+    /// 再開要求が拒否されたときの理由表示（canceled バナー下に添える / USL-116）。
+    private func resumeErrorNote(_ failure: BackendErrorBody) -> some View {
+        Label {
+            Text(failure.message)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+        } icon: {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(StatusRole.error.color)
+        }
+        .accessibilityElement(children: .combine)
     }
 
     /// queued: まだ工程が始まっていない（不確定インジケータ）。
@@ -191,7 +212,7 @@ public struct ProcessingView: View {
                     .textSelection(.enabled)
             }
 
-            Text("ライブラリから同じ動画を選び直すと、保存済みの成果物を引き継いで再処理できます。")
+            Text("下の「再開」ボタンで、失敗した工程から処理を再開できます。完了済みの工程はそのまま引き継がれます。")
                 .font(.callout)
                 .foregroundStyle(.secondary)
         }
@@ -255,19 +276,47 @@ public struct ProcessingView: View {
             .keyboardShortcut(.defaultAction)
         case .failed:
             HStack(spacing: 12) {
+                resumeButton
                 Button("ライブラリへ戻る") { model.returnToLibrary() }
-                    .buttonStyle(.borderedProminent)
                     .controlSize(.large)
-                    .keyboardShortcut(.defaultAction)
                 Button("状態を再取得") { observeNonce += 1 }
                     .controlSize(.large)
             }
         case .canceled:
-            Button("ライブラリへ戻る") { model.returnToLibrary() }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .keyboardShortcut(.defaultAction)
+            HStack(spacing: 12) {
+                resumeButton
+                Button("ライブラリへ戻る") { model.returnToLibrary() }
+                    .controlSize(.large)
+            }
         }
+    }
+
+    /// 失敗／キャンセル済みジョブを続きから再開する（`POST /jobs/{id}/resume` / USL-116）。
+    /// 受理されたら再観測を貼り直し、失敗ステージ以降の再実行を完了まで追従する。
+    /// 送信中は無効化して二度押しを防ぐ（`canResume` が isResuming を見る）。
+    private var resumeButton: some View {
+        Button {
+            guard let jobId = model.activeJobId else { return }
+            Task {
+                if await viewModel.resume(jobId: jobId) {
+                    observeNonce += 1 // 成功時のみ観測を貼り直す（失敗時は failure 表示を消さない）。
+                }
+            }
+        } label: {
+            if viewModel.isResuming {
+                HStack(spacing: 8) {
+                    SlowSpinner(size: 13)
+                    Text("再開中…")
+                }
+            } else {
+                Label("再開", systemImage: "arrow.clockwise")
+            }
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
+        .keyboardShortcut(.defaultAction)
+        .disabled(!viewModel.canResume)
+        .accessibilityHint("失敗した工程から処理を再開します")
     }
 
     private var cancelButton: some View {

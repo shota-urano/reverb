@@ -13,6 +13,11 @@ public protocol BackendClient: Sendable {
     func jobs() async throws -> JobListResponse
     func job(id: String) async throws -> JobStatus
     func cancelJob(id: String) async throws
+    /// 失敗／キャンセル済みジョブの途中再開（`POST /jobs/{id}/resume` / USL-109,116）。
+    /// レスポンスは `POST /jobs` と同じ `CreateJobResponse`（jobId は据え置き、status は queued）。
+    /// done は 409 `JOB_ALREADY_DONE`、running/queued は 409 `JOB_RUNNING`、未知は 404 `JOB_NOT_FOUND` を
+    /// エラー封筒で返すため、失敗は握り潰さず投げる。
+    func resumeJob(id: String) async throws -> CreateJobResponse
     /// プロジェクト削除（`DELETE /jobs/{id}` / USL-99）。ジョブと成果物を削除する。
     /// 実行中（queued/running）は backend が 409 で拒否するため、失敗は握り潰さず投げる。
     func deleteJob(id: String) async throws
@@ -68,6 +73,10 @@ public final class HTTPBackendClient: BackendClient {
 
     public func cancelJob(id: String) async throws {
         let _: EmptyResponse = try await post("jobs/\(id)/cancel", body: EmptyBody())
+    }
+
+    public func resumeJob(id: String) async throws -> CreateJobResponse {
+        try await post("jobs/\(id)/resume", body: EmptyBody())
     }
 
     public func deleteJob(id: String) async throws {
