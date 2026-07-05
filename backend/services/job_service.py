@@ -97,6 +97,32 @@ class JobService:
         if changed:
             self._notify(record)
 
+    def resume_job(self, job_id: str) -> CreateJobResponse:
+        def apply(record: JobRecord) -> None:
+            if record.status == JobState.done:
+                raise BackendError(
+                    code="JOB_ALREADY_DONE",
+                    message=f"Job is already done: {job_id}",
+                    status_code=409,
+                    retryable=False,
+                )
+            if record.status in (JobState.running, JobState.queued):
+                raise BackendError(
+                    code="JOB_RUNNING",
+                    message=f"Job is running: {job_id}",
+                    status_code=409,
+                    retryable=True,
+                )
+            record.status = JobState.queued
+            record.error = None
+
+        record = self.store.mutate(job_id, apply)
+        return CreateJobResponse(
+            jobId=record.job_id,
+            projectId=record.project_id,
+            status=record.status,
+        )
+
     def delete_job(self, job_id: str) -> None:
         self.store.delete(job_id)
         with self._lock:
