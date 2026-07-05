@@ -53,6 +53,9 @@ class _GlossaryTranslator:
         target = "ハーネス" if glossary else "用語集なし"
         return [target for segment in segments if not segment.get("contextOnly")]
 
+    def polish(self, segments, model, system_prompt, temperature):
+        return [segment["text"] for segment in segments]
+
 
 def test_glossary_is_generated_saved_and_injected_into_every_translation_chunk(
     tmp_path: Path,

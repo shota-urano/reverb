@@ -44,6 +44,9 @@ class FakeTranslator:
             return self.responses.pop(0)
         return []
 
+    def polish(self, segments, model, system_prompt, temperature):
+        return [segment["text"] for segment in segments]
+
 
 def test_single_empty_translation_falls_back_to_source(
     tmp_path: Path,

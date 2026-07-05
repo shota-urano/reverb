@@ -14,6 +14,7 @@ AUDIO_PATH = Path("audio.wav")
 THUMBNAIL_PATH = Path("thumbnail.jpg")
 TRANSCRIPT_PATH = Path("transcript.json")
 GLOSSARY_PATH = Path("glossary.json")
+TRANSLATION_RAW_PATH = Path("translation.pre_polish.json")
 TRANSLATION_PATH = Path("translation.json")
 SUBTITLES_PATH = Path("subtitles.json")
 TTS_DIR = Path("tts")
@@ -52,6 +53,14 @@ def write_translation(project_dir: Path, translation: Translation) -> Path:
 
 def read_translation(project_dir: Path) -> Translation:
     return _read_model(project_dir / TRANSLATION_PATH, Translation)
+
+
+def write_translation_raw(project_dir: Path, translation: Translation) -> Path:
+    return _write_model(project_dir / TRANSLATION_RAW_PATH, translation)
+
+
+def read_translation_raw(project_dir: Path) -> Translation:
+    return _read_model(project_dir / TRANSLATION_RAW_PATH, Translation)
 
 
 def write_subtitles(project_dir: Path, subtitles: Subtitles) -> Path:

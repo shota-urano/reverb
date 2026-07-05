@@ -17,6 +17,14 @@ DEFAULT_TTS_PROGRESS_ESTIMATED_CUE_SECONDS = 2.0
 DEFAULT_TTS_PROGRESS_INTERVAL_SECONDS = 0.25
 DEFAULT_MIX_PROGRESS_ESTIMATED_ITEM_SECONDS = 5.0
 DEFAULT_MIX_PROGRESS_INTERVAL_SECONDS = 0.25
+DEFAULT_TRANSLATE_POLISH_SYSTEM_PROMPT = """あなたは日本語ナレーション台本の推敲者です。
+入力は翻訳された日本語セグメントのJSON配列です。各要素は {"id": <int>, "text": <string>, "targetChars": <int>} の形式です。
+各セグメントの text を、耳で聞いて自然な日本語ナレーションになるよう表現を書き直してください。
+ルール:
+- 意味・情報の追加・削除・変更を禁止します。表現の自然化のみ行ってください。
+- targetChars を大きく超えないよう文字数を抑えてください（目安: targetChars の 1.2 倍以内）。
+- 出力は入力と同じ件数・同じ id の JSON 配列のみ。説明文・コードブロック記法は不要です。
+- 形式: [{"id": <int>, "text": <推敲後の日本語>}, ...]"""
 
 
 @dataclass(frozen=True)
@@ -160,6 +168,21 @@ class BackendConfig:
     translate_glossary_max_terms: int = field(
         default_factory=lambda: _env_int("REVERB_TRANSLATE_GLOSSARY_MAX_TERMS", 50)
     )
+    translate_polish_enabled: bool = field(
+        default_factory=lambda: _env_bool("REVERB_TRANSLATE_POLISH_ENABLED", True)
+    )
+    translate_polish_model: str = field(
+        default_factory=lambda: os.getenv("REVERB_TRANSLATE_POLISH_MODEL", "")
+    )
+    translate_polish_temperature: float = field(
+        default_factory=lambda: _env_float("REVERB_TRANSLATE_POLISH_TEMPERATURE", 0.5)
+    )
+    translate_polish_system_prompt: str = field(
+        default_factory=lambda: os.getenv(
+            "REVERB_TRANSLATE_POLISH_SYSTEM_PROMPT",
+            DEFAULT_TRANSLATE_POLISH_SYSTEM_PROMPT,
+        )
+    )
     translate_chunk_size: int = field(
         default_factory=lambda: _env_int("REVERB_TRANSLATE_CHUNK_SIZE", 10)
     )
@@ -293,6 +316,12 @@ class BackendConfig:
             raise ValueError("REVERB_TRANSLATE_DEDUP_SIMILARITY must be in the range [0.0, 1.0]")
         if self.translate_glossary_max_terms <= 0:
             raise ValueError("REVERB_TRANSLATE_GLOSSARY_MAX_TERMS must be greater than 0")
+        if self.translate_polish_temperature < 0:
+            raise ValueError(
+                "REVERB_TRANSLATE_POLISH_TEMPERATURE must be greater than or equal to 0"
+            )
+        if not self.translate_polish_system_prompt:
+            raise ValueError("REVERB_TRANSLATE_POLISH_SYSTEM_PROMPT must not be empty")
         if self.translate_chunk_size <= 0:
             raise ValueError("REVERB_TRANSLATE_CHUNK_SIZE must be greater than 0")
         if self.translate_chunk_groups <= 0:
@@ -353,6 +382,10 @@ class BackendConfig:
             translate_dedup_similarity=self.translate_dedup_similarity,
             translate_glossary_enabled=self.translate_glossary_enabled,
             translate_glossary_max_terms=self.translate_glossary_max_terms,
+            translate_polish_enabled=self.translate_polish_enabled,
+            translate_polish_model=self.translate_polish_model,
+            translate_polish_temperature=self.translate_polish_temperature,
+            translate_polish_system_prompt=self.translate_polish_system_prompt,
             translate_chunk_size=self.translate_chunk_size,
             translate_chunk_groups=self.translate_chunk_groups,
             translate_chars_per_sec=self.translate_chars_per_sec,

@@ -71,6 +71,9 @@ class FakeTranslator:
             return self.responses.pop(0)
         return [f"訳{segment['id']}" for segment in segments if not segment.get("contextOnly")]
 
+    def polish(self, segments, model, system_prompt, temperature):
+        return [segment["text"] for segment in segments]
+
 
 def test_translate_happy_path_writes_translation_artifact_and_progress(tmp_path: Path) -> None:
     translator = FakeTranslator(
