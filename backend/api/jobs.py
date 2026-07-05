@@ -46,6 +46,17 @@ def cancel_job(job_id: str, request: Request) -> dict:
     return {}
 
 
+@router.post("/{job_id}/resume", response_model=CreateJobResponse)
+def resume_job(
+    job_id: str,
+    background_tasks: BackgroundTasks,
+    request: Request,
+) -> CreateJobResponse:
+    response = request.app.state.job_service.resume_job(job_id)
+    background_tasks.add_task(request.app.state.job_service.run_job, job_id)
+    return response
+
+
 @router.delete("/{job_id}", status_code=200, response_model=EmptyResponse)
 def delete_job(job_id: str, request: Request) -> EmptyResponse:
     request.app.state.job_service.delete_job(job_id)
