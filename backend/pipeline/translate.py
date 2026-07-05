@@ -73,7 +73,11 @@ class TranslateStage(Stage):
         transcript = read_transcript(context.project_dir)
         model = context.job.settings.translate.model or context.config.default_translate_model
         glossary = self._load_or_generate_glossary(context, transcript, model)
-        segment_groups = group_segments_by_sentence(transcript.segments)
+        segment_groups = group_segments_by_sentence(
+            transcript.segments,
+            target_seconds=context.config.translate_group_target_seconds,
+            gap_seconds=context.config.translate_group_gap_seconds,
+        )
         segment_groups = dedup_adjacent_groups(
             segment_groups,
             context.config.translate_dedup_similarity,
@@ -410,11 +414,15 @@ def _sleep_before_retry(initial_wait: float, attempt: int) -> None:
         time.sleep(wait_seconds)
 
 
-def group_segments_by_sentence(segments: list[TranscriptSegment]) -> list[list[TranscriptSegment]]:
+def group_segments_by_sentence(
+    segments: list[TranscriptSegment],
+    target_seconds: Optional[float] = None,
+    gap_seconds: float = 1.0,
+) -> list[list[TranscriptSegment]]:
     groups: list[list[TranscriptSegment]] = []
     current: list[TranscriptSegment] = []
 
-    for segment in segments:
+    for index, segment in enumerate(segments):
         source = segment.text
         if not source.strip() or is_non_linguistic(source):
             if current:
@@ -425,8 +433,15 @@ def group_segments_by_sentence(segments: list[TranscriptSegment]) -> list[list[T
 
         current.append(segment)
         if _ends_with_sentence_terminal(source):
-            groups.append(current)
-            current = []
+            next_segment = segments[index + 1] if index + 1 < len(segments) else None
+            closes_group = target_seconds is None or next_segment is None
+            if next_segment is not None and target_seconds is not None:
+                gap = next_segment.start - segment.end
+                duration_with_next = next_segment.end - current[0].start
+                closes_group = gap >= gap_seconds or duration_with_next > target_seconds
+            if closes_group:
+                groups.append(current)
+                current = []
 
     if current:
         groups.append(current)

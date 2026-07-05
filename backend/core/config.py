@@ -193,6 +193,13 @@ class BackendConfig:
     translate_chars_per_sec: float = field(
         default_factory=lambda: _env_float("REVERB_TRANSLATE_CHARS_PER_SEC", 6.0)
     )
+    # Tune via REVERB_TRANSLATE_GROUP_TARGET_SECONDS / REVERB_TRANSLATE_GROUP_GAP_SECONDS — adjust with real-world measurements
+    translate_group_target_seconds: float = field(
+        default_factory=lambda: _env_float("REVERB_TRANSLATE_GROUP_TARGET_SECONDS", 8.0)
+    )
+    translate_group_gap_seconds: float = field(
+        default_factory=lambda: _env_float("REVERB_TRANSLATE_GROUP_GAP_SECONDS", 1.0)
+    )
     translate_context_window: int = field(
         default_factory=lambda: _env_int("REVERB_TRANSLATE_CONTEXT_WINDOW", 2)
     )
@@ -328,6 +335,10 @@ class BackendConfig:
             raise ValueError("REVERB_TRANSLATE_CHUNK_GROUPS must be greater than 0")
         if self.translate_chars_per_sec <= 0:
             raise ValueError("REVERB_TRANSLATE_CHARS_PER_SEC must be greater than 0")
+        if self.translate_group_target_seconds <= 0:
+            raise ValueError("REVERB_TRANSLATE_GROUP_TARGET_SECONDS must be greater than 0")
+        if self.translate_group_gap_seconds <= 0:
+            raise ValueError("REVERB_TRANSLATE_GROUP_GAP_SECONDS must be greater than 0")
         if self.translate_context_window < 0:
             raise ValueError("REVERB_TRANSLATE_CONTEXT_WINDOW must be greater than or equal to 0")
         if self.translate_temperature < 0:
@@ -389,6 +400,8 @@ class BackendConfig:
             translate_chunk_size=self.translate_chunk_size,
             translate_chunk_groups=self.translate_chunk_groups,
             translate_chars_per_sec=self.translate_chars_per_sec,
+            translate_group_target_seconds=self.translate_group_target_seconds,
+            translate_group_gap_seconds=self.translate_group_gap_seconds,
             translate_context_window=self.translate_context_window,
             translate_temperature=self.translate_temperature,
             translate_system_prompt=self.translate_system_prompt,

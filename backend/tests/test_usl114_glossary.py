@@ -65,7 +65,7 @@ def test_glossary_is_generated_saved_and_injected_into_every_translation_chunk(
         tmp_path,
         [
             TranscriptSegment(id=0, start=0.0, end=1.0, text="The harness is secure."),
-            TranscriptSegment(id=1, start=1.0, end=2.0, text="Inspect the harness."),
+            TranscriptSegment(id=1, start=3.0, end=4.0, text="Inspect the harness."),
         ],
         translate_chunk_size=1,
         translate_chunk_groups=1,

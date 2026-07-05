@@ -80,7 +80,7 @@ def test_empty_group_translation_falls_back_without_blocking_following_groups(
         translator,
         [
             TranscriptSegment(id=1, start=0.0, end=1.0, text="First."),
-            TranscriptSegment(id=2, start=1.0, end=2.0, text="Second."),
+            TranscriptSegment(id=2, start=3.0, end=4.0, text="Second."),
         ],
         config_overrides={
             "translate_max_retries": 0,
@@ -117,7 +117,7 @@ def test_normal_translations_are_returned_unchanged(tmp_path: Path) -> None:
         translator,
         [
             TranscriptSegment(id=1, start=0.0, end=1.0, text="Hello."),
-            TranscriptSegment(id=2, start=1.0, end=2.0, text="World."),
+            TranscriptSegment(id=2, start=3.0, end=4.0, text="World."),
         ],
     )
 
@@ -236,8 +236,8 @@ def test_majority_fallback_exceeds_threshold_raises_stage_error(
             translator,
             [
                 TranscriptSegment(id=1, start=0.0, end=1.0, text="First."),
-                TranscriptSegment(id=2, start=1.0, end=2.0, text="Second."),
-                TranscriptSegment(id=3, start=2.0, end=3.0, text="Third."),
+                TranscriptSegment(id=2, start=3.0, end=4.0, text="Second."),
+                TranscriptSegment(id=3, start=6.0, end=7.0, text="Third."),
             ],
             config_overrides={
                 "translate_max_retries": 0,
@@ -260,8 +260,8 @@ def test_single_fallback_within_threshold_succeeds(
         translator,
         [
             TranscriptSegment(id=1, start=0.0, end=1.0, text="First."),
-            TranscriptSegment(id=2, start=1.0, end=2.0, text="Second."),
-            TranscriptSegment(id=3, start=2.0, end=3.0, text="Third."),
+            TranscriptSegment(id=2, start=3.0, end=4.0, text="Second."),
+            TranscriptSegment(id=3, start=6.0, end=7.0, text="Third."),
         ],
         config_overrides={
             "translate_max_retries": 0,

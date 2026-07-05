@@ -71,7 +71,7 @@ def test_translates_configured_number_of_sentence_groups_per_request(
         tmp_path,
         translator,
         [
-            _segment(index, float(index), float(index + 1), f"Sentence {index}.")
+            _segment(index, float(index * 3), float(index * 3 + 1), f"Sentence {index}.")
             for index in range(5)
         ],
         translate_chunk_groups=2,
@@ -99,8 +99,8 @@ def test_passes_previous_confirmed_source_target_pairs_as_context(tmp_path: Path
         translator,
         [
             _segment(10, 0.0, 1.0, "First."),
-            _segment(11, 1.0, 2.0, "Second."),
-            _segment(12, 2.0, 3.0, "Third."),
+            _segment(11, 3.0, 4.0, "Second."),
+            _segment(12, 6.0, 7.0, "Third."),
         ],
         translate_chunk_groups=2,
     )
@@ -116,8 +116,8 @@ def test_passes_previous_confirmed_source_target_pairs_as_context(tmp_path: Path
         },
         {
             "id": 11,
-            "start": 1.0,
-            "end": 2.0,
+            "start": 3.0,
+            "end": 4.0,
             "text": "Second.",
             "target": "第二訳。",
             "contextOnly": True,
