@@ -7,7 +7,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional
 
 import uvicorn
 from fastapi import FastAPI
@@ -23,10 +23,35 @@ from core.job_store import JobStore
 from services.job_service import JobService
 
 
+def _prepend_existing_directories_to_path(
+    path_value: str,
+    candidate_directories: Iterable[Path],
+) -> str:
+    directories = []
+    for candidate in candidate_directories:
+        candidate_value = str(candidate)
+        if candidate.is_dir() and candidate_value not in directories:
+            directories.append(candidate_value)
+
+    path_entries = path_value.split(os.pathsep) if path_value else []
+    remaining_entries = [entry for entry in path_entries if entry not in directories]
+    return os.pathsep.join([*directories, *remaining_entries])
+
+
+def _apply_configured_binary_directories_to_path(config: BackendConfig) -> None:
+    binary_paths = [Path(config.ffmpeg_bin), Path(config.ffprobe_bin)]
+    directories = [path.parent for path in binary_paths if path.is_absolute()]
+    path_value = os.environ.get("PATH", "")
+    updated_path = _prepend_existing_directories_to_path(path_value, directories)
+    if updated_path != path_value:
+        os.environ["PATH"] = updated_path
+
+
 def create_app(projects_dir: Optional[Path] = None) -> FastAPI:
     config = BackendConfig()
     if projects_dir is not None:
         config = config.with_projects_dir(projects_dir)
+    _apply_configured_binary_directories_to_path(config)
 
     app = FastAPI(title="Reverb Backend", version=config.version)
     app.state.config = config
