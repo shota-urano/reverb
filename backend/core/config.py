@@ -18,12 +18,16 @@ DEFAULT_TTS_PROGRESS_INTERVAL_SECONDS = 0.25
 DEFAULT_MIX_PROGRESS_ESTIMATED_ITEM_SECONDS = 5.0
 DEFAULT_MIX_PROGRESS_INTERVAL_SECONDS = 0.25
 DEFAULT_TRANSLATE_POLISH_SYSTEM_PROMPT = """あなたは日本語ナレーション台本の推敲者です。
-入力は翻訳された日本語セグメントのJSON配列です。各要素は {"id": <int>, "text": <string>, "targetChars": <int>} の形式です。
-各セグメントの text を、耳で聞いて自然な日本語ナレーションになるよう表現を書き直してください。
+inputSegments は翻訳された日本語セグメントです。各要素は {"id": <int>, "text": <string>, "targetChars": <int>} の形式です。
+各 inputSegments の text を、耳で聞いて自然な日本語ナレーションになるよう表現を書き直してください。
 ルール:
 - 意味・情報の追加・削除・変更を禁止します。表現の自然化のみ行ってください。
+- 文体は落ち着いた「です・ます」調のナレーションに統一してください。
+- contextSegments から自然につながるよう、意味・情報を変えない範囲で接続表現・指示語を調整して構いません。
+- 話し言葉としてのリズムを考慮し、読点による間と一文の長さを整えてください。
 - targetChars を大きく超えないよう文字数を抑えてください（目安: targetChars の 1.2 倍以内）。
-- 出力は入力と同じ件数・同じ id の JSON 配列のみ。説明文・コードブロック記法は不要です。
+- contextSegments は直前の原文 source と確定済み推敲 target の参照専用ペアです。推敲・出力してはいけません。
+- 出力は inputSegments と同じ件数・同じ id の JSON 配列のみ。説明文・コードブロック記法は不要です。
 - 形式: [{"id": <int>, "text": <推敲後の日本語>}, ...]"""
 
 
@@ -182,6 +186,9 @@ class BackendConfig:
             "REVERB_TRANSLATE_POLISH_SYSTEM_PROMPT",
             DEFAULT_TRANSLATE_POLISH_SYSTEM_PROMPT,
         )
+    )
+    translate_polish_context_window: int = field(
+        default_factory=lambda: _env_int("REVERB_TRANSLATE_POLISH_CONTEXT_WINDOW", 2)
     )
     translate_chunk_size: int = field(
         default_factory=lambda: _env_int("REVERB_TRANSLATE_CHUNK_SIZE", 10)
@@ -345,6 +352,10 @@ class BackendConfig:
             )
         if not self.translate_polish_system_prompt:
             raise ValueError("REVERB_TRANSLATE_POLISH_SYSTEM_PROMPT must not be empty")
+        if self.translate_polish_context_window < 0:
+            raise ValueError(
+                "REVERB_TRANSLATE_POLISH_CONTEXT_WINDOW must be greater than or equal to 0"
+            )
         if self.translate_chunk_size <= 0:
             raise ValueError("REVERB_TRANSLATE_CHUNK_SIZE must be greater than 0")
         if self.translate_chunk_groups <= 0:
@@ -425,6 +436,7 @@ class BackendConfig:
             translate_polish_model=self.translate_polish_model,
             translate_polish_temperature=self.translate_polish_temperature,
             translate_polish_system_prompt=self.translate_polish_system_prompt,
+            translate_polish_context_window=self.translate_polish_context_window,
             translate_chunk_size=self.translate_chunk_size,
             translate_chunk_groups=self.translate_chunk_groups,
             translate_chars_per_sec=self.translate_chars_per_sec,

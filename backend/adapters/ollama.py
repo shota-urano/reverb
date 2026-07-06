@@ -137,6 +137,17 @@ class OllamaAdapter:
         system_prompt: str,
         temperature: float,
     ) -> list[str]:
+        context_segments = [segment for segment in segments if segment.get("contextOnly")]
+        input_segments = [segment for segment in segments if not segment.get("contextOnly")]
+        user_content = json.dumps(segments, ensure_ascii=False)
+        if context_segments:
+            user_content = json.dumps(
+                {
+                    "contextSegments": _context_segment_payload(context_segments),
+                    "inputSegments": _input_segment_payload(input_segments),
+                },
+                ensure_ascii=False,
+            )
         payload = {
             "model": model,
             "stream": False,
@@ -144,7 +155,7 @@ class OllamaAdapter:
                 {"role": "system", "content": system_prompt},
                 {
                     "role": "user",
-                    "content": json.dumps(segments, ensure_ascii=False),
+                    "content": user_content,
                 },
             ],
             "options": {"temperature": temperature},
@@ -157,11 +168,11 @@ class OllamaAdapter:
         if not isinstance(content, str):
             raise _translation_misalign_error()
         parsed = _parse_translation_array(content)
-        if len(parsed) != len(segments) or any(
+        if len(parsed) != len(input_segments) or any(
             not isinstance(item, dict) or "id" not in item for item in parsed
         ):
             raise _translation_misalign_error()
-        return _translation_texts(parsed, segments)
+        return _translation_texts(parsed, input_segments)
 
     def warm_up(self, model: str, system_prompt: str) -> None:
         payload = {

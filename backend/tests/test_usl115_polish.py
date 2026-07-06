@@ -257,6 +257,7 @@ def _run_pipeline(
     translator: _PolishTranslator,
     *,
     segments: Optional[list[TranscriptSegment]] = None,
+    translate_polish_context_window: int = 0,
     **config_overrides: object,
 ) -> JobRecord:
     config = BackendConfig(
@@ -264,6 +265,7 @@ def _run_pipeline(
         translate_chunk_size=10,
         translate_chunk_groups=10,
         translate_retry_initial_wait=0.0,
+        translate_polish_context_window=translate_polish_context_window,
         **config_overrides,
     ).with_projects_dir(tmp_path)
     store = JobStore(config.projects_dir)
