@@ -85,6 +85,11 @@ class TranslateStage(Stage):
         )
 
         chunks = list(_chunks(segment_groups, context.config.translate_chunk_size))
+        translation_progress_limit = (
+            1.0 - context.config.translate_polish_progress_share
+            if context.config.translate_polish_enabled
+            else 1.0
+        )
         if any(_is_translatable_group(group) for group in segment_groups):
             self._warm_up(context, model)
 
@@ -94,8 +99,8 @@ class TranslateStage(Stage):
         last_chunk_seconds: Optional[float] = None
         processed_group_count = 0
         for index, chunk in enumerate(chunks):
-            base_progress = index / len(chunks)
-            ceiling_progress = (index + 1) / len(chunks)
+            base_progress = translation_progress_limit * index / len(chunks)
+            ceiling_progress = translation_progress_limit * (index + 1) / len(chunks)
             reporter = _EstimatedProgressReporter(
                 progress_cb=context.report_progress,
                 estimated_total_seconds=(
@@ -161,7 +166,7 @@ class TranslateStage(Stage):
                 retryable=True,
             )
         if not segment_groups:
-            context.report_progress(1.0)
+            context.report_progress(translation_progress_limit)
         translation = Translation(
             model=model,
             sourceLanguage=transcript.language,
@@ -171,6 +176,7 @@ class TranslateStage(Stage):
         if context.config.translate_polish_enabled:
             write_translation_raw(context.project_dir, translation)
             self._polish_translation(context, translation)
+            context.report_progress(1.0)
         write_translation(context.project_dir, translation)
         return str(TRANSLATION_PATH)
 
@@ -199,7 +205,12 @@ class TranslateStage(Stage):
             for index, segment in enumerate(translation.segments)
         }
         confirmed_polished_segments: list[TranslationSegment] = []
-        for chunk in _chunks(translation.segments, context.config.translate_chunk_size):
+        chunks = list(_chunks(translation.segments, context.config.translate_chunk_size))
+        progress_base = 1.0 - context.config.translate_polish_progress_share
+        for index, chunk in enumerate(chunks):
+            chunk_progress = progress_base + context.config.translate_polish_progress_share * (
+                index + 1
+            ) / (len(chunks) + 1)
             input_segments = [segment for segment in chunk if segment.target]
             inputs = _confirmed_polish_context_segments(
                 confirmed_polished_segments,
@@ -214,6 +225,7 @@ class TranslateStage(Stage):
                 for segment in input_segments
             ]
             if not input_segments:
+                context.report_progress(chunk_progress)
                 continue
             try:
                 polished = self.adapter.polish(
@@ -233,11 +245,11 @@ class TranslateStage(Stage):
                     "Japanese polish failed; using pre-polish targets for this chunk.",
                     exc_info=True,
                 )
-                continue
-
-            for segment, resolved_target in zip(input_segments, resolved_targets):
-                segment.target = resolved_target
-            confirmed_polished_segments.extend(input_segments)
+            else:
+                for segment, resolved_target in zip(input_segments, resolved_targets):
+                    segment.target = resolved_target
+                confirmed_polished_segments.extend(input_segments)
+            context.report_progress(chunk_progress)
         logger.info(
             "Japanese polish completed in %.3f seconds.",
             time.monotonic() - started_at,

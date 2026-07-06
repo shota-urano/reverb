@@ -13,6 +13,7 @@ DEFAULT_STT_PROGRESS_MAX_FRACTION = 0.95
 DEFAULT_STT_PROGRESS_INTERVAL_SECONDS = 0.25
 DEFAULT_TRANSLATE_PROGRESS_ESTIMATED_CHUNK_SECONDS = 30.0
 DEFAULT_TRANSLATE_PROGRESS_INTERVAL_SECONDS = 0.25
+DEFAULT_TRANSLATE_POLISH_PROGRESS_SHARE = 0.1
 DEFAULT_TTS_PROGRESS_ESTIMATED_CUE_SECONDS = 2.0
 DEFAULT_TTS_PROGRESS_INTERVAL_SECONDS = 0.25
 DEFAULT_MIX_PROGRESS_ESTIMATED_ITEM_SECONDS = 5.0
@@ -190,6 +191,12 @@ class BackendConfig:
     translate_polish_context_window: int = field(
         default_factory=lambda: _env_int("REVERB_TRANSLATE_POLISH_CONTEXT_WINDOW", 2)
     )
+    translate_polish_progress_share: float = field(
+        default_factory=lambda: _env_float(
+            "REVERB_TRANSLATE_POLISH_PROGRESS_SHARE",
+            DEFAULT_TRANSLATE_POLISH_PROGRESS_SHARE,
+        )
+    )
     translate_chunk_size: int = field(
         default_factory=lambda: _env_int("REVERB_TRANSLATE_CHUNK_SIZE", 10)
     )
@@ -356,6 +363,10 @@ class BackendConfig:
             raise ValueError(
                 "REVERB_TRANSLATE_POLISH_CONTEXT_WINDOW must be greater than or equal to 0"
             )
+        if self.translate_polish_progress_share <= 0 or self.translate_polish_progress_share >= 1:
+            raise ValueError(
+                "REVERB_TRANSLATE_POLISH_PROGRESS_SHARE must be in the range (0.0, 1.0)"
+            )
         if self.translate_chunk_size <= 0:
             raise ValueError("REVERB_TRANSLATE_CHUNK_SIZE must be greater than 0")
         if self.translate_chunk_groups <= 0:
@@ -437,6 +448,7 @@ class BackendConfig:
             translate_polish_temperature=self.translate_polish_temperature,
             translate_polish_system_prompt=self.translate_polish_system_prompt,
             translate_polish_context_window=self.translate_polish_context_window,
+            translate_polish_progress_share=self.translate_polish_progress_share,
             translate_chunk_size=self.translate_chunk_size,
             translate_chunk_groups=self.translate_chunk_groups,
             translate_chars_per_sec=self.translate_chars_per_sec,
