@@ -198,17 +198,22 @@ class TranslateStage(Stage):
             )
             for index, segment in enumerate(translation.segments)
         }
+        confirmed_polished_segments: list[TranslationSegment] = []
         for chunk in _chunks(translation.segments, context.config.translate_chunk_size):
-            inputs = [
+            input_segments = [segment for segment in chunk if segment.target]
+            inputs = _confirmed_polish_context_segments(
+                confirmed_polished_segments,
+                context.config.translate_polish_context_window,
+                target_chars_by_id,
+            ) + [
                 {
                     "id": segment.id,
                     "text": segment.target,
                     "targetChars": target_chars_by_id[segment.id],
                 }
-                for segment in chunk
-                if segment.target
+                for segment in input_segments
             ]
-            if not inputs:
+            if not input_segments:
                 continue
             try:
                 polished = self.adapter.polish(
@@ -217,9 +222,8 @@ class TranslateStage(Stage):
                     context.config.translate_polish_system_prompt,
                     context.config.translate_polish_temperature,
                 )
-                if len(polished) != len(inputs):
+                if len(polished) != len(input_segments):
                     raise ValueError("Polished segment count did not match input segment count.")
-                input_segments = [segment for segment in chunk if segment.target]
                 resolved_targets = [
                     polished_text if polished_text.strip() else segment.target
                     for segment, polished_text in zip(input_segments, polished)
@@ -233,6 +237,7 @@ class TranslateStage(Stage):
 
             for segment, resolved_target in zip(input_segments, resolved_targets):
                 segment.target = resolved_target
+            confirmed_polished_segments.extend(input_segments)
         logger.info(
             "Japanese polish completed in %.3f seconds.",
             time.monotonic() - started_at,
@@ -816,6 +821,26 @@ def _confirmed_context_segments(
             "contextOnly": True,
         }
         for segment in prior[-max(0, context_window) :]
+    ]
+
+
+def _confirmed_polish_context_segments(
+    confirmed_segments: list[TranslationSegment],
+    context_window: int,
+    target_chars_by_id: dict[int, int],
+) -> list[dict[str, object]]:
+    if context_window <= 0:
+        return []
+    prior = [segment for segment in confirmed_segments if segment.source.strip()]
+    return [
+        {
+            "id": segment.id,
+            "text": segment.source,
+            "target": segment.target,
+            "targetChars": target_chars_by_id[segment.id],
+            "contextOnly": True,
+        }
+        for segment in prior[-context_window:]
     ]
 
 
