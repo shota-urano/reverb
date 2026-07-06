@@ -154,10 +154,10 @@ def test_translate_stage_uses_representative_source_and_merged_timing(tmp_path: 
             engine=config.default_stt_engine,
             model=record.settings.stt.model,
             language="en",
-            duration=2.5,
+            duration=4.5,
             segments=[
                 _segment(1, 0.0, 1.0, "Hello, world!"),
-                _segment(2, 1.0, 2.5, "hello world"),
+                _segment(2, 3.0, 4.5, "hello world"),
             ],
         ),
     )
@@ -169,10 +169,10 @@ def test_translate_stage_uses_representative_source_and_merged_timing(tmp_path: 
 
     translation = read_translation(record.project_dir)
     assert len(translation.segments) == 1
-    assert translation.segments[0].end == 2.5
+    assert translation.segments[0].end == 4.5
     assert translation.segments[0].source == "Hello, world!"
     assert translator.calls[0][-1]["text"] == "Hello, world!"
-    assert translator.calls[0][-1]["end"] == 2.5
+    assert translator.calls[0][-1]["end"] == 4.5
 
 
 def _segment(segment_id: int, start: float, end: float, text: str) -> TranscriptSegment:

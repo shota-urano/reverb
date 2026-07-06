@@ -135,7 +135,7 @@ def test_polish_preserves_segment_ids_and_sends_target_chars(tmp_path: Path) -> 
     translator = _PolishTranslator(polish_responses=[["推敲7", "推敲11"]])
     segments = [
         TranscriptSegment(id=7, start=0.0, end=2.0, text="First."),
-        TranscriptSegment(id=11, start=2.0, end=3.5, text="Second."),
+        TranscriptSegment(id=11, start=4.0, end=5.5, text="Second."),
     ]
 
     record = _run_pipeline(tmp_path, translator, segments=segments)
@@ -153,7 +153,7 @@ def test_empty_polished_text_falls_back_only_that_segment(tmp_path: Path) -> Non
     translator = _PolishTranslator(polish_responses=[["", "自然な二文目です。"]])
     segments = [
         TranscriptSegment(id=0, start=0.0, end=1.0, text="First."),
-        TranscriptSegment(id=1, start=1.0, end=2.0, text="Second."),
+        TranscriptSegment(id=1, start=3.0, end=4.0, text="Second."),
     ]
 
     record = _run_pipeline(tmp_path, translator, segments=segments)

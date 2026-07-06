@@ -89,8 +89,8 @@ def test_translate_happy_path_writes_translation_artifact_and_progress(tmp_path:
         translator,
         segments=[
             TranscriptSegment(id=0, start=0.0, end=1.0, text="Hello."),
-            TranscriptSegment(id=1, start=1.0, end=2.0, text="World."),
-            TranscriptSegment(id=2, start=2.0, end=3.0, text="Again."),
+            TranscriptSegment(id=1, start=3.0, end=4.0, text="World."),
+            TranscriptSegment(id=2, start=6.0, end=7.0, text="Again."),
         ],
         chunk_size=2,
     )
