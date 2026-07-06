@@ -172,7 +172,7 @@ def test_non_linguistic_segments_remain_in_context_window_for_adjacent_targets(
             "end": 3.0,
             "text": "World.",
             "contextOnly": False,
-            "targetChars": 6,
+            "targetChars": 8,
         },
     ]
 
