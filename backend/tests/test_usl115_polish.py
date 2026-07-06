@@ -144,8 +144,8 @@ def test_polish_preserves_segment_ids_and_sends_target_chars(tmp_path: Path) -> 
     assert [segment.id for segment in translation.segments] == [7, 11]
     assert [segment.target for segment in translation.segments] == ["推敲7", "推敲11"]
     assert translator.polish_calls[0]["segments"] == [
-        {"id": 7, "text": "直訳7", "targetChars": 12},
-        {"id": 11, "text": "直訳11", "targetChars": 9},
+        {"id": 7, "text": "直訳7", "targetChars": 31},
+        {"id": 11, "text": "直訳11", "targetChars": 12},
     ]
 
 

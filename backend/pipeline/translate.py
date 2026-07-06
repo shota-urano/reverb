@@ -92,6 +92,7 @@ class TranslateStage(Stage):
         translatable_count: int = 0
         fallback_count: int = 0
         last_chunk_seconds: Optional[float] = None
+        processed_group_count = 0
         for index, chunk in enumerate(chunks):
             base_progress = index / len(chunks)
             ceiling_progress = (index + 1) / len(chunks)
@@ -111,6 +112,12 @@ class TranslateStage(Stage):
             started_at = time.monotonic()
             try:
                 for request_groups in _chunks(chunk, context.config.translate_chunk_groups):
+                    following_group_index = processed_group_count + len(request_groups)
+                    following_group = (
+                        segment_groups[following_group_index]
+                        if following_group_index < len(segment_groups)
+                        else None
+                    )
                     translated_groups = self._translate_groups(
                         context,
                         request_groups,
@@ -118,6 +125,7 @@ class TranslateStage(Stage):
                         transcript.language,
                         model,
                         glossary,
+                        following_group=following_group,
                     )
                     for group, (target, fell_back) in zip(
                         request_groups,
@@ -136,6 +144,7 @@ class TranslateStage(Stage):
                                 target=target,
                             )
                         )
+                    processed_group_count += len(request_groups)
             finally:
                 reporter.stop()
             last_chunk_seconds = time.monotonic() - started_at
@@ -172,15 +181,29 @@ class TranslateStage(Stage):
     ) -> None:
         started_at = time.monotonic()
         model = context.config.translate_polish_model or context.config.default_translate_model
+        target_chars_by_id = {
+            segment.id: _target_chars(
+                segment,
+                context.config.translate_chars_per_sec,
+                trailing_gap_seconds=_trailing_gap_seconds(
+                    segment.end,
+                    (
+                        translation.segments[index + 1].start
+                        if index + 1 < len(translation.segments)
+                        else None
+                    ),
+                ),
+                gap_cap_seconds=context.config.translate_target_gap_cap_seconds,
+                speed_factor=context.config.translate_target_speed_factor,
+            )
+            for index, segment in enumerate(translation.segments)
+        }
         for chunk in _chunks(translation.segments, context.config.translate_chunk_size):
             inputs = [
                 {
                     "id": segment.id,
                     "text": segment.target,
-                    "targetChars": _target_chars(
-                        segment,
-                        context.config.translate_chars_per_sec,
-                    ),
+                    "targetChars": target_chars_by_id[segment.id],
                 }
                 for segment in chunk
                 if segment.target
@@ -223,11 +246,18 @@ class TranslateStage(Stage):
         source_lang: Optional[str],
         model: str,
         glossary: list[dict[str, str]],
+        *,
+        following_group: Optional[list[TranscriptSegment]] = None,
     ) -> list[tuple[str, bool]]:
         translatable_groups = [group for group in groups if _is_translatable_group(group)]
         if not translatable_groups:
             return [(_passthrough_target(group), False) for group in groups]
 
+        input_groups = [
+            (group, groups[index + 1] if index + 1 < len(groups) else following_group)
+            for index, group in enumerate(groups)
+            if _is_translatable_group(group)
+        ]
         request_segments = _confirmed_context_segments(
             confirmed_segments,
             context.config.translate_context_window,
@@ -235,9 +265,18 @@ class TranslateStage(Stage):
             _group_payload(
                 group,
                 context_only=False,
-                target_chars=_target_chars(group, context.config.translate_chars_per_sec),
+                target_chars=_target_chars(
+                    group,
+                    context.config.translate_chars_per_sec,
+                    trailing_gap_seconds=_trailing_gap_seconds(
+                        group[-1].end,
+                        next_group[0].start if next_group is not None else None,
+                    ),
+                    gap_cap_seconds=context.config.translate_target_gap_cap_seconds,
+                    speed_factor=context.config.translate_target_speed_factor,
+                ),
             )
-            for group in translatable_groups
+            for group, next_group in input_groups
         ]
 
         attempts = context.config.translate_max_retries + 1
@@ -703,6 +742,10 @@ def _passthrough_target(group: list[TranscriptSegment]) -> str:
 def _target_chars(
     segment_or_group: Union[list[TranscriptSegment], TranslationSegment],
     chars_per_second: float,
+    *,
+    trailing_gap_seconds: float = 0.0,
+    gap_cap_seconds: float = 0.0,
+    speed_factor: float = 1.0,
 ) -> int:
     if isinstance(segment_or_group, list):
         start = segment_or_group[0].start
@@ -711,9 +754,20 @@ def _target_chars(
         start = segment_or_group.start
         end = segment_or_group.end
     duration = max(0.0, end - start)
+    usable_gap = min(max(0.0, trailing_gap_seconds), max(0.0, gap_cap_seconds))
+    effective_speed_factor = 1.0 if speed_factor == 0 else speed_factor
     # 0秒枠（Whisper出力で起こり得る）で targetChars: 0 を渡すと素直なモデルが
     # 空文字を返しリトライを浪費するため、下限を設ける。
-    return max(1, int(round(duration * chars_per_second)))
+    return max(
+        1,
+        int(round((duration + usable_gap) * chars_per_second * effective_speed_factor)),
+    )
+
+
+def _trailing_gap_seconds(current_end: float, next_start: Optional[float]) -> float:
+    if next_start is None:
+        return 0.0
+    return max(0.0, next_start - current_end)
 
 
 def _ends_with_sentence_terminal(text: str) -> bool:

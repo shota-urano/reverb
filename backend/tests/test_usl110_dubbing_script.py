@@ -149,7 +149,7 @@ def test_adds_target_chars_from_speaking_duration(tmp_path: Path) -> None:
         translate_chars_per_sec=6.0,
     )
 
-    assert _inputs(translator.calls[0])[0]["targetChars"] == 15
+    assert _inputs(translator.calls[0])[0]["targetChars"] == 20
 
 
 def test_retries_when_id_mapping_fails(tmp_path: Path) -> None:

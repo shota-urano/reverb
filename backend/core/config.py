@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional
 
 from core.net import validate_loopback_host, validate_loopback_url
 
@@ -193,6 +193,16 @@ class BackendConfig:
     translate_chars_per_sec: float = field(
         default_factory=lambda: _env_float("REVERB_TRANSLATE_CHARS_PER_SEC", 6.0)
     )
+    # 導入時に実測調整: 後続無音へ伸ばせる翻訳予算。未指定時は mix の drift 上限を使う。
+    translate_target_gap_cap_seconds: Optional[float] = field(
+        default_factory=lambda: _env_optional_float(
+            "REVERB_TRANSLATE_TARGET_GAP_CAP_SECONDS"
+        )
+    )
+    # 導入時に実測調整: mix の speedScale 上限 1.3 に整合させる。0 は従来挙動。
+    translate_target_speed_factor: float = field(
+        default_factory=lambda: _env_float("REVERB_TRANSLATE_TARGET_SPEED_FACTOR", 1.3)
+    )
     # Tune via REVERB_TRANSLATE_GROUP_TARGET_SECONDS / REVERB_TRANSLATE_GROUP_GAP_SECONDS — adjust with real-world measurements
     translate_group_target_seconds: float = field(
         default_factory=lambda: _env_float("REVERB_TRANSLATE_GROUP_TARGET_SECONDS", 8.0)
@@ -269,6 +279,12 @@ class BackendConfig:
     projects_dir: Path = field(default_factory=lambda: _default_projects_dir())
 
     def __post_init__(self) -> None:
+        if self.translate_target_gap_cap_seconds is None:
+            object.__setattr__(
+                self,
+                "translate_target_gap_cap_seconds",
+                self.mix_max_drift_seconds,
+            )
         # ローカル完結（ルール1）を構造で担保: 待受ホスト・外部エンジンURLは
         # ループバックのみ許可。クラウド/外部ホストが設定されたら起動時に弾く。
         validate_loopback_host("REVERB_HOST", self.host)
@@ -335,6 +351,18 @@ class BackendConfig:
             raise ValueError("REVERB_TRANSLATE_CHUNK_GROUPS must be greater than 0")
         if self.translate_chars_per_sec <= 0:
             raise ValueError("REVERB_TRANSLATE_CHARS_PER_SEC must be greater than 0")
+        if self.translate_target_gap_cap_seconds < 0:
+            raise ValueError(
+                "REVERB_TRANSLATE_TARGET_GAP_CAP_SECONDS must be greater than or equal to 0"
+            )
+        if self.translate_target_speed_factor < 0 or self.translate_target_speed_factor > 1.3:
+            raise ValueError(
+                "REVERB_TRANSLATE_TARGET_SPEED_FACTOR must be in the range [0.0, 1.3]"
+            )
+        if 0 < self.translate_target_speed_factor < 1.0:
+            raise ValueError(
+                "REVERB_TRANSLATE_TARGET_SPEED_FACTOR must be 0 or in the range [1.0, 1.3]"
+            )
         if self.translate_group_target_seconds <= 0:
             raise ValueError("REVERB_TRANSLATE_GROUP_TARGET_SECONDS must be greater than 0")
         if self.translate_group_gap_seconds <= 0:
@@ -400,6 +428,8 @@ class BackendConfig:
             translate_chunk_size=self.translate_chunk_size,
             translate_chunk_groups=self.translate_chunk_groups,
             translate_chars_per_sec=self.translate_chars_per_sec,
+            translate_target_gap_cap_seconds=self.translate_target_gap_cap_seconds,
+            translate_target_speed_factor=self.translate_target_speed_factor,
             translate_group_target_seconds=self.translate_group_target_seconds,
             translate_group_gap_seconds=self.translate_group_gap_seconds,
             translate_context_window=self.translate_context_window,
@@ -468,6 +498,17 @@ def _env_float(name: str, default: float) -> float:
         return float(raw)
     except ValueError:
         return default
+
+
+def _env_optional_float(name: str) -> Optional[float]:
+    """環境変数を float 解釈する。未指定・不正値なら呼び出し側の既定値へ委ねる。"""
+    raw = os.getenv(name)
+    if raw is None:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None
 
 
 def _env_bool(name: str, default: bool) -> bool:
